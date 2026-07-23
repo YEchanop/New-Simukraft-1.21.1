@@ -1,4 +1,4 @@
-﻿{
+{
     "itemGroup.simukraft":  "新：模拟大都市",
     "block.simukraft.blue_light_block":  "NSUK-蓝色灯块",
     "block.simukraft.build_box":  "NSUK-建造盒",
@@ -208,6 +208,10 @@
     "screen.simukraft.city_core.citizen_manage.scroll_hint":  "%s / 共%s",
     "screen.simukraft.city_core.citizen_manage.dismiss":  "解雇",
     "screen.simukraft.city_core.citizen_manage.exile":  "流放",
+    "screen.simukraft.city_core.citizen_manage.rename":  "改名",
+    "screen.simukraft.city_core.citizen_manage.rename_title":  "重命名NPC",
+    "screen.simukraft.city_core.citizen_manage.rename_confirm":  "确认",
+    "screen.simukraft.city_core.citizen_manage.rename_cancel":  "取消",
     "screen.simukraft.city_core.citizen_manage.search":  "按姓名搜索",
     "screen.simukraft.city_core.menu.finance":  "财政管理",
     "screen.simukraft.city_core.map_title":  "城市地图",
@@ -306,6 +310,9 @@
     "message.simukraft.citizen_manage.dismissed":  "已解雇市民 %s。",
     "message.simukraft.citizen_manage.dismiss_failed":  "无法解雇 %s（可能本就无业）。",
     "message.simukraft.citizen_manage.exiled":  "已流放市民 %s。",
+    "message.simukraft.citizen_manage.renamed":  "已将市民 %s 改名为 %s。",
+    "message.simukraft.citizen_manage.rename_empty":  "名字不能为空。",
+    "message.simukraft.citizen_manage.rename_too_long":  "名字不能超过32个字符。",
     "message.simukraft.city_core.renamed":  "城市已重命名为 %s。",
     "message.simukraft.city_core.rename_failed":  "城市重命名失败：%s。",
     "message.simukraft.city_core.deleted":  "城市 %s 已删除。",

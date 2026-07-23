@@ -181,7 +181,8 @@ public final class CitizenManager extends SavedData {
         }
     }
 
-    void saveCitizenNow(UUID citizenId) {
+    /** saveCitizenNow：立即持久化指定市民数据，供外部包（如网络包）调用。 */
+    public void saveCitizenNow(UUID citizenId) {
         CitizenData data = citizenId != null ? citizens.get(citizenId) : null;
         if (data != null) {
             saveCitizenIncremental(data);

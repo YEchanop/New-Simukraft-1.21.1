@@ -23,16 +23,17 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * CityCitizenManageActionPacket: 在“市民管理”界面对指定市民执行解雇/流放（客户端 -> 服务端）。
+ * CityCitizenManageActionPacket: 在"市民管理"界面对指定市民执行解雇/流放/重命名（客户端 -> 服务端）。
  */
 @SuppressWarnings("null")
-public record CityCitizenManageActionPacket(BlockPos pos, Action action, UUID citizenId) implements CustomPacketPayload {
+public record CityCitizenManageActionPacket(BlockPos pos, Action action, UUID citizenId, String newName) implements CustomPacketPayload {
     public static final Type<CityCitizenManageActionPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(SimuKraft.MOD_ID, "city_citizen_manage_action"));
     public static final StreamCodec<RegistryFriendlyByteBuf, CityCitizenManageActionPacket> STREAM_CODEC = StreamCodec.of(CityCitizenManageActionPacket::encode, CityCitizenManageActionPacket::decode);
 
     public enum Action {
         DISMISS,
-        EXILE
+        EXILE,
+        RENAME
     }
 
     @Override
@@ -44,10 +45,11 @@ public record CityCitizenManageActionPacket(BlockPos pos, Action action, UUID ci
         buffer.writeBlockPos(packet.pos());
         buffer.writeEnum(packet.action());
         buffer.writeUUID(packet.citizenId());
+        buffer.writeUtf(packet.newName() != null ? packet.newName() : "");
     }
 
     public static CityCitizenManageActionPacket decode(RegistryFriendlyByteBuf buffer) {
-        return new CityCitizenManageActionPacket(buffer.readBlockPos(), buffer.readEnum(Action.class), buffer.readUUID());
+        return new CityCitizenManageActionPacket(buffer.readBlockPos(), buffer.readEnum(Action.class), buffer.readUUID(), buffer.readUtf());
     }
 
     public static void handle(CityCitizenManageActionPacket packet, IPayloadContext context) {
@@ -88,6 +90,19 @@ public record CityCitizenManageActionPacket(BlockPos pos, Action action, UUID ci
             case EXILE -> {
                 CitizenManager.get(level).removeCitizen(packet.citizenId());
                 InfoToastService.success(player, Component.translatable("message.simukraft.citizen_manage.exiled", name));
+            }
+            case RENAME -> {
+                CitizenData citizen = citizenOptional.get();
+                String newName = packet.newName() != null ? packet.newName().trim() : "";
+                if (newName.isBlank()) {
+                    InfoToastService.warning(player, Component.translatable("message.simukraft.citizen_manage.rename_empty"));
+                } else if (newName.length() > 32) {
+                    InfoToastService.warning(player, Component.translatable("message.simukraft.citizen_manage.rename_too_long"));
+                } else {
+                    citizen.setName(newName);
+                    CitizenManager.get(level).saveCitizenNow(citizen.uuid());
+                    InfoToastService.success(player, Component.translatable("message.simukraft.citizen_manage.renamed", name, newName));
+                }
             }
         }
         CityCitizenManageRequestPacket.sendCitizens(level, player, packet.pos());

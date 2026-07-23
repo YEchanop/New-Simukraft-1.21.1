@@ -322,6 +322,20 @@ public final class CityCoreScreenOpener {
             layout.gapAll(4);
         });
 
+        final UUID[] renameCitizenId = { null };
+        final TextField[] renameField = { null };
+        final UIElement[] renameDialogHolder = { null };
+
+        Runnable confirmRename = () -> {
+            if (renameCitizenId[0] != null && renameField[0] != null) {
+                PacketDistributor.sendToServer(new CityCitizenManageActionPacket(
+                        packet.pos(), CityCitizenManageActionPacket.Action.RENAME,
+                        renameCitizenId[0], renameField[0].getValue()));
+                renameDialogHolder[0].setVisible(false);
+                refreshCitizens(packet);
+            }
+        };
+
         Runnable rebuild = () -> {
             listPanel.clearAllChildren();
             String q = searchField.getValue().toLowerCase(Locale.ROOT).trim();
@@ -329,7 +343,7 @@ public final class CityCoreScreenOpener {
             for (CityCitizenManageResponsePacket.CitizenEntry citizen : packet.citizens()) {
                 String n = citizen.name() == null ? "" : citizen.name();
                 if (!q.isEmpty() && !n.toLowerCase(Locale.ROOT).contains(q)) continue;
-                listPanel.addChild(citizenRow(packet, citizen));
+                listPanel.addChild(citizenRow(packet, citizen, renameCitizenId, renameField, renameDialogHolder));
                 any = true;
             }
             if (!any) listPanel.addChild(line(Component.translatable("screen.simukraft.city_core.citizen_manage.empty")));
@@ -344,10 +358,108 @@ public final class CityCoreScreenOpener {
             layout.widthPercent(100);
         });
         outer.addChild(scroller);
+
+        UIElement renameDialog = renameDialog(renameField,
+                confirmRename,
+                () -> renameDialogHolder[0].setVisible(false));
+        renameDialog.setVisible(false);
+        renameDialogHolder[0] = renameDialog;
+        outer.addChild(renameDialog);
+
         return outer;
     }
 
-    private static UIElement citizenRow(CityCitizenManageResponsePacket packet, CityCitizenManageResponsePacket.CitizenEntry citizen) {
+    /** renameDialog：重命名NPC弹窗，包含标题、输入框、确认/取消按钮。 */
+    private static UIElement renameDialog(TextField[] nameFieldRef,
+                                          Runnable onConfirm, Runnable onCancel) {
+        UIElement overlay = new UIElement().layout(layout -> {
+            layout.positionType(dev.vfyjxf.taffy.style.TaffyPosition.ABSOLUTE);
+            layout.left(0);
+            layout.top(0);
+            layout.right(0);
+            layout.bottom(0);
+            layout.flexDirection(FlexDirection.COLUMN);
+            layout.alignItems(AlignItems.CENTER);
+            layout.justifyContent(AlignContent.CENTER);
+        }).style(style -> style.backgroundTexture(new ColorRectTexture(0x80000000)));
+
+        UIElement dialog = new UIElement().layout(layout -> {
+            layout.width(320);
+            layout.height(140);
+            layout.flexDirection(FlexDirection.COLUMN);
+            layout.paddingAll(12);
+            layout.gapAll(10);
+            layout.alignItems(AlignItems.STRETCH);
+        }).style(style -> style.backgroundTexture(new ColorRectTexture(0xFF1A1A2E)));
+
+        Label titleLabel = new Label();
+        titleLabel.setText(Component.translatable("screen.simukraft.city_core.citizen_manage.rename_title"));
+        titleLabel.textStyle(style -> style
+                .textColor(0xFFFFFFFF)
+                .textShadow(false)
+                .fontSize(12.0F)
+                .textAlignHorizontal(com.lowdragmc.lowdraglib2.gui.ui.data.Horizontal.CENTER)
+                .textAlignVertical(com.lowdragmc.lowdraglib2.gui.ui.data.Vertical.CENTER));
+        titleLabel.layout(layout -> {
+            layout.height(20);
+            layout.widthPercent(100);
+        });
+        dialog.addChild(titleLabel);
+
+        TextField nameField = textField("", 280);
+        nameField.layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(28);
+        });
+        dialog.addChild(nameField);
+        nameFieldRef[0] = nameField;
+
+        UIElement buttonRow = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(12);
+            layout.justifyContent(AlignContent.CENTER);
+        });
+
+        Button confirmBtn = contentButton("screen.simukraft.city_core.citizen_manage.rename_confirm", onConfirm);
+        confirmBtn.layout(layout -> {
+            layout.width(100);
+            layout.height(24);
+        });
+        buttonRow.addChild(confirmBtn);
+
+        Button cancelBtn = contentButton("screen.simukraft.city_core.citizen_manage.rename_cancel", onCancel);
+        cancelBtn.layout(layout -> {
+            layout.width(100);
+            layout.height(24);
+        });
+        buttonRow.addChild(cancelBtn);
+
+        dialog.addChild(buttonRow);
+        overlay.addChild(dialog);
+
+        overlay.addEventListener(UIEvents.MOUSE_DOWN, e -> e.stopPropagation());
+        return overlay;
+    }
+
+    private static void openRenameDialog(UUID[] citizenIdRef, TextField[] nameFieldRef, UIElement[] dialogHolder,
+                                         UUID citizenId, String name) {
+        citizenIdRef[0] = citizenId;
+        if (nameFieldRef[0] != null) {
+            nameFieldRef[0].setValue(name != null ? name : "");
+        }
+        dialogHolder[0].setVisible(true);
+    }
+
+    private static void refreshCitizens(CityCitizenManageResponsePacket packet) {
+        CityCoreWindow window = activeWindow;
+        if (window != null) {
+            PacketDistributor.sendToServer(new CityCitizenManageRequestPacket(packet.pos()));
+        }
+    }
+
+    private static UIElement citizenRow(CityCitizenManageResponsePacket packet, CityCitizenManageResponsePacket.CitizenEntry citizen,
+                                        UUID[] renameCitizenId, TextField[] renameField, UIElement[] renameDialogHolder) {
         UIElement row = new UIElement().layout(layout -> {
             layout.widthPercent(100);
             layout.height(44);
@@ -375,10 +487,18 @@ public final class CityCoreScreenOpener {
         info.addChild(line(Component.literal(citizen.name() == null || citizen.name().isBlank() ? "-" : citizen.name())));
         row.addChild(info);
         if (packet.canManage()) {
-            row.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.dismiss", 52,
-                    () -> { PacketDistributor.sendToServer(new CityCitizenManageActionPacket(packet.pos(), CityCitizenManageActionPacket.Action.DISMISS, citizen.citizenId())); close(); }));
-            row.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.exile", 44,
-                    () -> { PacketDistributor.sendToServer(new CityCitizenManageActionPacket(packet.pos(), CityCitizenManageActionPacket.Action.EXILE, citizen.citizenId())); close(); }));
+            UIElement buttonGroup = new UIElement().layout(layout -> {
+                layout.flexDirection(FlexDirection.ROW);
+                layout.gapAll(4);
+                layout.flexShrink(0);
+            });
+            buttonGroup.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.rename", 44,
+                    () -> openRenameDialog(renameCitizenId, renameField, renameDialogHolder, citizen.citizenId(), citizen.name())));
+            buttonGroup.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.dismiss", 52,
+                    () -> { PacketDistributor.sendToServer(new CityCitizenManageActionPacket(packet.pos(), CityCitizenManageActionPacket.Action.DISMISS, citizen.citizenId(), null)); close(); }));
+            buttonGroup.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.exile", 44,
+                    () -> { PacketDistributor.sendToServer(new CityCitizenManageActionPacket(packet.pos(), CityCitizenManageActionPacket.Action.EXILE, citizen.citizenId(), null)); close(); }));
+            row.addChild(buttonGroup);
         }
         return row;
     }
