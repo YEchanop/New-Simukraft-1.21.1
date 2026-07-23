@@ -384,11 +384,11 @@ public final class CityCoreScreenOpener {
         }).style(style -> style.backgroundTexture(new ColorRectTexture(0x80000000)));
 
         UIElement dialog = new UIElement().layout(layout -> {
-            layout.width(320);
-            layout.height(140);
+            layout.width(220);
+            layout.height(110);
             layout.flexDirection(FlexDirection.COLUMN);
-            layout.paddingAll(12);
-            layout.gapAll(10);
+            layout.paddingAll(8);
+            layout.gapAll(8);
             layout.alignItems(AlignItems.STRETCH);
         }).style(style -> style.backgroundTexture(new ColorRectTexture(0xFF1A1A2E)));
 
@@ -406,10 +406,10 @@ public final class CityCoreScreenOpener {
         });
         dialog.addChild(titleLabel);
 
-        TextField nameField = textField("", 280);
+        TextField nameField = textField("", 200);
         nameField.layout(layout -> {
             layout.widthPercent(100);
-            layout.height(28);
+            layout.height(22);
         });
         dialog.addChild(nameField);
         nameFieldRef[0] = nameField;
@@ -423,15 +423,15 @@ public final class CityCoreScreenOpener {
 
         Button confirmBtn = contentButton("screen.simukraft.city_core.citizen_manage.rename_confirm", onConfirm);
         confirmBtn.layout(layout -> {
-            layout.width(100);
-            layout.height(24);
+            layout.width(80);
+            layout.height(20);
         });
         buttonRow.addChild(confirmBtn);
 
         Button cancelBtn = contentButton("screen.simukraft.city_core.citizen_manage.rename_cancel", onCancel);
         cancelBtn.layout(layout -> {
-            layout.width(100);
-            layout.height(24);
+            layout.width(80);
+            layout.height(20);
         });
         buttonRow.addChild(cancelBtn);
 
