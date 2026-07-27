@@ -19,6 +19,7 @@ import common.cn.kafei.simukraft.city.CityChunkManager;
 import common.cn.kafei.simukraft.city.CityData;
 import common.cn.kafei.simukraft.city.CityManager;
 import common.cn.kafei.simukraft.city.CityPermissionInviteService;
+import common.cn.kafei.simukraft.city.CityPermissionLevel;
 import common.cn.kafei.simukraft.city.CityService;
 import common.cn.kafei.simukraft.city.poi.CityPoiData;
 import common.cn.kafei.simukraft.city.poi.CityPoiManager;
@@ -55,9 +56,12 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import common.cn.kafei.simukraft.city.CityMemberData;
+
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 
 @SuppressWarnings("null")
 public final class SimuKraftCommand {
@@ -89,6 +93,22 @@ public final class SimuKraftCommand {
                                                 context.getSource(),
                                                 StringArgumentType.getString(context, "inviteId"),
                                                 false)))))
+                .then(Commands.literal("mayor")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("transfer")
+                                .then(Commands.argument("from", EntityArgument.player())
+                                        .then(Commands.argument("to", EntityArgument.player())
+                                                .executes(context -> transferMayor(
+                                                        context.getSource(),
+                                                        EntityArgument.getPlayer(context, "from"),
+                                                        EntityArgument.getPlayer(context, "to"))))))
+                        .then(Commands.literal("transfer-by-name")
+                                .then(Commands.argument("cityName", StringArgumentType.string())
+                                        .then(Commands.argument("to", EntityArgument.player())
+                                                .executes(context -> transferMayorByName(
+                                                        context.getSource(),
+                                                        StringArgumentType.getString(context, "cityName"),
+                                                        EntityArgument.getPlayer(context, "to")))))))
                 .then(Commands.literal("funds")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.literal("add")
@@ -749,6 +769,80 @@ public final class SimuKraftCommand {
                 targetPlayer.getGameProfile().getName(),
                 balanceText
         ), true);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    /** transferMayorByName: OP 通过城市名（支持离线市长）强制将市长转让给目标在线玩家。 */
+    private static int transferMayorByName(CommandSourceStack source, String cityName, ServerPlayer toPlayer) {
+        ServerLevel level = source.getServer().overworld();
+        Optional<CityData> cityOpt = CityService.findCityByName(level, cityName);
+        if (cityOpt.isEmpty()) {
+            source.sendFailure(Component.translatable("message.simukraft.command.city_mayor.city_not_found", cityName));
+            return 0;
+        }
+        CityData city = cityOpt.get();
+        // 找出当前市长成员（支持离线）
+        CityMemberData mayorMember = city.members().stream()
+                .filter(m -> m.permissionLevel() == CityPermissionLevel.MAYOR)
+                .findFirst()
+                .orElse(null);
+        if (mayorMember == null) {
+            source.sendFailure(Component.translatable("message.simukraft.command.city_mayor.failed"));
+            return 0;
+        }
+        UUID mayorId = mayorMember.playerId();
+        String mayorName = mayorMember.playerName();
+        Optional<CityData> targetCityOpt = CityService.findPlayerCity(level, toPlayer.getUUID());
+        if (targetCityOpt.isPresent()) {
+            source.sendFailure(Component.translatable("message.simukraft.command.city_mayor.target_has_city",
+                    toPlayer.getGameProfile().getName(), targetCityOpt.get().cityName()));
+            return 0;
+        }
+        boolean ok = CityService.transferMayor(level, city.cityId(), mayorId,
+                toPlayer.getUUID(), toPlayer.getGameProfile().getName());
+        if (!ok) {
+            source.sendFailure(Component.translatable("message.simukraft.command.city_mayor.failed"));
+            return 0;
+        }
+        syncCityMembersHud(level, city);
+        source.sendSuccess(() -> Component.translatable("message.simukraft.command.city_mayor.success",
+                city.cityName(),
+                mayorName,
+                toPlayer.getGameProfile().getName()), true);
+        return Command.SINGLE_SUCCESS;
+    }
+
+    /** transferMayor: OP 强制将指定城市市长身份转让给目标玩家（目标不能已有城市）。 */
+    private static int transferMayor(CommandSourceStack source, ServerPlayer fromPlayer, ServerPlayer toPlayer) {
+        ServerLevel level = fromPlayer.serverLevel();
+        Optional<CityData> cityOpt = CityService.findPlayerCity(level, fromPlayer.getUUID());
+        if (cityOpt.isEmpty()) {
+            source.sendFailure(Component.translatable("message.simukraft.command.city_mayor.no_city", fromPlayer.getGameProfile().getName()));
+            return 0;
+        }
+        CityData city = cityOpt.get();
+        if (!city.hasPermission(fromPlayer.getUUID(), CityPermissionLevel.MAYOR)) {
+            source.sendFailure(Component.translatable("message.simukraft.command.city_mayor.not_mayor",
+                    fromPlayer.getGameProfile().getName(), city.cityName()));
+            return 0;
+        }
+        Optional<CityData> targetCityOpt = CityService.findPlayerCity(level, toPlayer.getUUID());
+        if (targetCityOpt.isPresent()) {
+            source.sendFailure(Component.translatable("message.simukraft.command.city_mayor.target_has_city",
+                    toPlayer.getGameProfile().getName(), targetCityOpt.get().cityName()));
+            return 0;
+        }
+        boolean ok = CityService.transferMayor(level, city.cityId(), fromPlayer.getUUID(),
+                toPlayer.getUUID(), toPlayer.getGameProfile().getName());
+        if (!ok) {
+            source.sendFailure(Component.translatable("message.simukraft.command.city_mayor.failed"));
+            return 0;
+        }
+        syncCityMembersHud(level, city);
+        source.sendSuccess(() -> Component.translatable("message.simukraft.command.city_mayor.success",
+                city.cityName(),
+                fromPlayer.getGameProfile().getName(),
+                toPlayer.getGameProfile().getName()), true);
         return Command.SINGLE_SUCCESS;
     }
 
