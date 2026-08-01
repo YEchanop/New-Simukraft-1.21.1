@@ -14,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /** 医疗 JSON 读取与缓存，避免每次医疗调度重复解析建筑包。 */
+@SuppressWarnings("null")
 public final class MedicalDefinitionLoader {
     private static final ConcurrentMap<String, LoadResult> CACHE = new ConcurrentHashMap<>();
 

@@ -19,6 +19,7 @@ import java.util.UUID;
  * Opens wooden doors for arriving citizens and closes them once the opener (and any other
  * citizen still in the doorway) has cleared the opening.
  */
+@SuppressWarnings("null")
 final class CitizenDoorService {
     private static final double DOOR_INTERACT_RANGE_SQR = 9.0D;
     private static final double DOOR_CLEAR_RANGE_SQR = 2.25D;
@@ -31,12 +32,6 @@ final class CitizenDoorService {
     /** A wooden door a citizen opened, tracked so it can be closed once cleared. */
     record OpenedDoor(UUID citizenId, long openedAt) {
     }
-
-    /**
-     * Opens the wooden door the citizen is arriving at, recording it so it can be closed once the
-     * citizen has cleared the opening. Only doors this follower actually flips from closed to open
-     * are tracked; a door already open is left as the world set it.
-     */
     static void tryOpenWoodenDoor(ServerLevel level, CitizenEntity citizen, PathWaypoint waypoint, Map<Long, OpenedDoor> openedDoors) {
         if (level == null || citizen == null || waypoint == null) {
             return;

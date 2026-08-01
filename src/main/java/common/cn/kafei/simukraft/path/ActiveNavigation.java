@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Drives a single citizen's per-tick movement along an already-computed {@link PathResult}. */
+@SuppressWarnings("null")
 final class ActiveNavigation {
     private static final double PASSED_WAYPOINT_DOT_EPSILON = 1.05D;
     private static final double PASSED_WAYPOINT_LATERAL_TOLERANCE = 0.45D;
