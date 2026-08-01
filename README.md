@@ -45,3 +45,25 @@ server options, and optional city highlighting support for Xaero's World Map.
 ## License
 
 New: Sim-U-Kraft is licensed under **GPL 3.0**.
+
+## Features
+
+### 市民重命名功能
+- 玩家可通过市民管理界面对已有的市民进行重命名
+- 名字长度限制为1-32个字符，不能为空
+- 重命名后立即生效并持久化保存
+
+### 城市管理命令增强
+
+#### 退出城市命令
+- 命令：`/simukraft city leave`
+- 任何玩家均可使用，无需OP权限
+- 玩家可主动退出当前所在城市，无需等待市长批准
+- 若玩家是当前城市的市长，则不允许直接退出，需先转让市长职位或删除城市
+
+#### OP删除城市命令
+- 命令：`/simukraft city delete <城市名>`
+- 仅限OP（权限等级2+）使用
+- 可强制删除任意城市，无需市长在线
+- 适用于市长长期不在线导致的废弃城市清理场景
+- 删除后自动通知原城市所有在线成员并同步HUD

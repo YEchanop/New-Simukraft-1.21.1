@@ -1,4 +1,4 @@
-﻿{
+{
     "itemGroup.simukraft":  "New: Sim-U-Kraft",
     "block.simukraft.blue_light_block":  "NSUK Blue Light Block",
     "block.simukraft.build_box":  "NSUK Build Box",
@@ -362,6 +362,13 @@
     "message.simukraft.command.city_funds.set":  "Set funds for city %1$s (player %2$s) to %3$s.",
     "message.simukraft.command.city_required":  "You do not belong to any city.",
     "message.simukraft.command.city_citizens.spawned":  "Spawned %1$s citizen(s) for city %2$s.",
+    "message.simukraft.command.city_leave.no_city":  "You are not a member of any city.",
+    "message.simukraft.command.city_leave.is_mayor":  "You are the mayor. Please transfer mayorship or delete the city first.",
+    "message.simukraft.command.city_leave.success":  "You have left city \"%s\".",
+    "message.simukraft.command.city_leave.failed":  "Failed to leave the city.",
+    "message.simukraft.command.city_delete.city_not_found":  "City \"%s\" not found.",
+    "message.simukraft.command.city_delete.success":  "City \"%s\" has been deleted.",
+    "message.simukraft.command.city_delete.failed":  "Failed to delete the city.",
     "message.simukraft.command.path_stress.started":  "Stress test submitted: %1$s path request(s), %2$s loaded / %3$s total city citizen(s), spread radius %4$s blocks.",
     "message.simukraft.command.path_wander.started":  "Submitted %s wander path request(s), radius %s blocks.",
     "message.simukraft.command.npc_disease.selected_not_citizen":  "The selected entity is not a citizen NPC.",
