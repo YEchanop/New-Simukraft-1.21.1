@@ -11,7 +11,6 @@ import net.neoforged.api.distmarker.OnlyIn;
  * 使用方式：声明实例字段，render() 中调用 beginRender()，keyPressed() 中调用 toggle()。
  */
 @OnlyIn(Dist.CLIENT)
-@SuppressWarnings("null")
 public final class SlidingInfoPanel {
 
     private static final int PANEL_W = 132;

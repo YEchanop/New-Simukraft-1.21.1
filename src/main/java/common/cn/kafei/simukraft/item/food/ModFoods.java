@@ -8,7 +8,6 @@ import net.minecraft.world.food.FoodProperties;
 
 import java.util.List;
 
-@SuppressWarnings("null")
 public final class ModFoods {
 
     private ModFoods() {}

@@ -126,6 +126,7 @@ public final class CitizenManager extends SavedData {
         if (sqliteLoaded) {
             return;
         }
+        sqliteLoaded = true;
         CompoundTag sqliteTag = SimuSqliteStorage.loadCitizens(level);
         if (sqliteTag == null) {
             SimuKraft.LOGGER.warn("Simukraft: Citizen SQLite data was not loaded; delaying entity-to-citizen fallback to avoid overwriting jobs.");

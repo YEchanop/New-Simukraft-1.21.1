@@ -30,7 +30,6 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 /** 医疗控制箱 LDLib 单页界面。 */
 @OnlyIn(Dist.CLIENT)
-@SuppressWarnings("null")
 public final class MedicalControlBoxScreenOpener {
     private static final int PANEL_WIDTH = 340;
     private static final int PANEL_HEIGHT = 248;
