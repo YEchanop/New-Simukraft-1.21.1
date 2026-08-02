@@ -28,6 +28,7 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.PathfinderMob;
+import net.minecraft.world.entity.ai.control.JumpControl;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
@@ -38,6 +39,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -76,13 +78,25 @@ public class CitizenEntity extends PathfinderMob {
     private boolean inventoryReconciled;
     private UUID followPlayerId;
     private boolean stayInPlace;
+    private boolean pathJumpRequested;
     private int lastWorkSwingPulse = -1;
     private int workSwingStartTick = -WORK_SWING_DURATION_TICKS;
 
     public CitizenEntity(EntityType<? extends PathfinderMob> entityType, Level level) {
         super(entityType, level);
+        this.jumpControl = new CitizenJumpControl(this);
         this.setPersistenceRequired();
         citizenInventory.addListener(ignored -> onCitizenInventoryChanged());
+    }
+
+    /** Allows an explicit path JUMP waypoint through the thin-shape jump filter. */
+    public void triggerPathJump() {
+        pathJumpRequested = true;
+        try {
+            getJumpControl().jump();
+        } finally {
+            pathJumpRequested = false;
+        }
     }
 
     public static AttributeSupplier.Builder createAttributes() {
@@ -165,6 +179,16 @@ public class CitizenEntity extends PathfinderMob {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(2, new RandomLookAroundGoal(this));
+    }
+
+    /**
+     * City-scale movement is coordinated by {@link CitizenNavigationService}; letting thousands
+     * of citizens also perform vanilla entity pushing turns a dense crowd into a collision hot
+     * path. Block collision, interaction and the coordinator's logical yielding stay enabled.
+     */
+    @Override
+    public boolean isPushable() {
+        return false;
     }
 
     @Override
@@ -256,6 +280,33 @@ public class CitizenEntity extends PathfinderMob {
     // canSyncCitizenData：死亡实体在真正移除前仍可能 tick，不能在这个窗口重建 CitizenData。
     private boolean canSyncCitizenData() {
         return !isRemoved() && isAlive() && getHealth() > 0.0F;
+    }
+
+    static boolean clearsCurrentBlockCollision(AABB citizenBox, net.minecraft.core.BlockPos blockPos, VoxelShape shape) {
+        for (AABB collisionBox : shape.toAabbs()) {
+            if (collisionBox.move(blockPos.getX(), blockPos.getY(), blockPos.getZ()).intersects(citizenBox)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static final class CitizenJumpControl extends JumpControl {
+        private final CitizenEntity citizen;
+
+        private CitizenJumpControl(CitizenEntity citizen) {
+            super(citizen);
+            this.citizen = citizen;
+        }
+
+        @Override
+        public void jump() {
+            net.minecraft.core.BlockPos pos = citizen.blockPosition();
+            VoxelShape shape = citizen.level().getBlockState(pos).getCollisionShape(citizen.level(), pos);
+            if (citizen.pathJumpRequested || !clearsCurrentBlockCollision(citizen.getBoundingBox(), pos, shape)) {
+                super.jump();
+            }
+        }
     }
 
     @Override
