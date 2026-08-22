@@ -2,6 +2,7 @@ package common.cn.kafei.simukraft.network.building;
 
 import common.cn.kafei.simukraft.SimuKraft;
 import common.cn.kafei.simukraft.building.BuildingBlockData;
+import common.cn.kafei.simukraft.building.BuildingCatalog;
 import common.cn.kafei.simukraft.building.BuildingStructure;
 import common.cn.kafei.simukraft.building.BuildingTaskStatus;
 import common.cn.kafei.simukraft.building.BuilderConstructionMobilityService;
@@ -21,6 +22,7 @@ import common.cn.kafei.simukraft.economy.FinanceLedgerService;
 import common.cn.kafei.simukraft.job.CitizenEmploymentService;
 import common.cn.kafei.simukraft.job.CityJobType;
 import common.cn.kafei.simukraft.network.hud.HudSyncService;
+import common.cn.kafei.simukraft.network.rts.RtsRemoteMenuAccess;
 import common.cn.kafei.simukraft.network.toast.InfoToastService;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -68,7 +70,8 @@ public record BuildBoxStartConstructionPacket(BlockPos buildBoxPos,
         if (!(context.player() instanceof ServerPlayer player) || !(player.level() instanceof ServerLevel level)) {
             return;
         }
-        if (!player.blockPosition().closerThan(packet.buildBoxPos(), 24.0D)) {
+        if (!player.blockPosition().closerThan(packet.buildBoxPos(), 24.0D)
+                && !RtsRemoteMenuAccess.hasAccess(player, packet.buildBoxPos())) {
             InfoToastService.warning(player, Component.translatable("message.simukraft.build_box.too_far"));
             return;
         }
@@ -92,7 +95,18 @@ public record BuildBoxStartConstructionPacket(BlockPos buildBoxPos,
             InfoToastService.warning(player, Component.translatable("message.simukraft.build_box.no_permission"));
             return;
         }
-        Optional<BuildingStructure> structureOptional = BuildingStructureService.loadStructure(packet.category(), packet.buildingFileName());
+        Optional<BuildingCatalog.BuildingDefinition> definitionOptional = BuildingCatalog.findBuilding(packet.category(), packet.buildingFileName());
+        if (definitionOptional.isEmpty()) {
+            InfoToastService.error(player, Component.translatable("message.simukraft.build_box.structure_not_found"));
+            return;
+        }
+        BuildingCatalog.BuildingDefinition definition = definitionOptional.get();
+        int cityLevel = CityService.findCity(level, cityId).map(city -> city.cityLevel()).orElse(0);
+        if (definition.unlockLevel() > 0 && cityLevel < definition.unlockLevel()) {
+            InfoToastService.warning(player, Component.translatable("message.simukraft.build_box.level_locked", definition.unlockLevel()));
+            return;
+        }
+        Optional<BuildingStructure> structureOptional = BuildingStructureService.loadStructure(definition);
         if (structureOptional.isEmpty()) {
             InfoToastService.error(player, Component.translatable("message.simukraft.build_box.structure_not_found"));
             return;

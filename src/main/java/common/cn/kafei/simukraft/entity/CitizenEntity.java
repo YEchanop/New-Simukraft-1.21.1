@@ -9,6 +9,7 @@ import common.cn.kafei.simukraft.citizen.CitizenJobVisualService;
 import common.cn.kafei.simukraft.citizen.CitizenManager;
 import common.cn.kafei.simukraft.citizen.CitizenManualControlService;
 import common.cn.kafei.simukraft.citizen.CitizenDroppedFoodService;
+import common.cn.kafei.simukraft.citizen.CitizenFoodConsumptionService;
 import common.cn.kafei.simukraft.citizen.CitizenService;
 import common.cn.kafei.simukraft.citizen.CitizenTeleportService;
 import common.cn.kafei.simukraft.citizen.CitizenWorkStatus;
@@ -63,6 +64,7 @@ public class CitizenEntity extends PathfinderMob {
     private static final EntityDataAccessor<Boolean> DATA_IS_CHILD = SynchedEntityData.defineId(CitizenEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Boolean> DATA_HAS_ACTIVE_TASK = SynchedEntityData.defineId(CitizenEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Integer> DATA_WORK_SWING_PULSE = SynchedEntityData.defineId(CitizenEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<String> DATA_PREGNANCY_STAGE = SynchedEntityData.defineId(CitizenEntity.class, EntityDataSerializers.STRING);
     private static final String LEGACY_ENGLISH_CITIZEN_PREFIX = "Citizen ";
     private static final String LEGACY_CHINESE_CITIZEN_PREFIX = "市民 ";
     private static final String TAG_HUNGER = "Hunger";
@@ -172,6 +174,7 @@ public class CitizenEntity extends PathfinderMob {
         builder.define(DATA_IS_CHILD, false);
         builder.define(DATA_HAS_ACTIVE_TASK, false);
         builder.define(DATA_WORK_SWING_PULSE, 0);
+        builder.define(DATA_PREGNANCY_STAGE, "none");
     }
 
     @Override
@@ -225,7 +228,14 @@ public class CitizenEntity extends PathfinderMob {
                 discard();
                 return;
             }
-            CitizenDroppedFoodService.tryEatNearbyFood(serverLevel, this, data);
+            // 服务端实体 tick 直接检查背包，避免 NPC 未进入全局自给流程时漏掉进食。
+            boolean ateBackpackFood = false;
+            if (getHungerValue() < DEFAULT_HUNGER) {
+                ateBackpackFood = CitizenFoodConsumptionService.tryEatBackpackFood(serverLevel, this, data);
+            }
+            if (!ateBackpackFood) {
+                CitizenDroppedFoodService.tryEatNearbyFood(serverLevel, this, data);
+            }
         }
     }
 
@@ -303,7 +313,9 @@ public class CitizenEntity extends PathfinderMob {
         public void jump() {
             net.minecraft.core.BlockPos pos = citizen.blockPosition();
             VoxelShape shape = citizen.level().getBlockState(pos).getCollisionShape(citizen.level(), pos);
-            if (citizen.pathJumpRequested || !clearsCurrentBlockCollision(citizen.getBoundingBox(), pos, shape)) {
+            // FloatGoal 依赖该跳跃维持水中浮力；陆地仍仅允许路径跳跃或碰撞跳跃。
+            if (citizen.pathJumpRequested || citizen.isInWater()
+                    || !clearsCurrentBlockCollision(citizen.getBoundingBox(), pos, shape)) {
                 super.jump();
             }
         }
@@ -556,6 +568,17 @@ public class CitizenEntity extends PathfinderMob {
     public void setChildNpc(boolean childNpc) {
         this.entityData.set(DATA_IS_CHILD, childNpc);
         refreshDimensions(); // 幼儿/成人状态切换时同步刷新碰撞箱
+    }
+
+    /** getPregnancyStage：返回同步到客户端的孕期阶段名。 */
+    public String getPregnancyStage() {
+        return this.entityData.get(DATA_PREGNANCY_STAGE);
+    }
+
+    /** setPregnancyStage：设置孕期阶段名，供客户端渲染肚子大小。 */
+    public void setPregnancyStage(String pregnancyStage) {
+        this.entityData.set(DATA_PREGNANCY_STAGE,
+                pregnancyStage != null && !pregnancyStage.isBlank() ? pregnancyStage : "none");
     }
 
     @Override

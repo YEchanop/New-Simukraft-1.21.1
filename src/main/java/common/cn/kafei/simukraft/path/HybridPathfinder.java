@@ -169,9 +169,11 @@ final class HybridPathfinder {
      * <p>This generator also mounts a ladder/vine/scaffold one level above or below an adjacent
      * floor: a citizen standing on the rim of a shaft must be able to step sideways-and-down onto
      * the first rung to descend (the common "hole in the floor with a ladder below the rim" build),
-     * or sideways-and-up onto a rung whose lowest cell sits one block above the floor. These
-     * {@code CLIMB} entries are orthogonal-only for the same corner-safety reason, and once the
-     * citizen is on the ladder {@link #addClimbNeighbors} drives the vertical travel.
+     * or sideways-and-up onto a rung whose lowest cell sits one block above the floor. A raised
+     * ladder over a solid support block is entered as a {@code JUMP}, so the citizen clears
+     * the block before grabbing the ladder; a hanging ladder remains a {@code CLIMB} entry. Both
+     * variants are orthogonal-only for the same corner-safety reason, and once the citizen is on the
+     * ladder {@link #addClimbNeighbors} drives the vertical travel.
      */
     private static void addVerticalTransitions(PathSnapshot snapshot, PathCell current, MovementIntent intent, List<Neighbor> output) {
         if (current.climbable()) {
@@ -200,7 +202,10 @@ final class HybridPathfinder {
                         && up.standY() - current.standY() <= 1.25D
                         && canCrossHorizontalBoundary(snapshot, current, up)
                         && hasVerticalPassage(snapshot, current, up)) {
-                    output.add(new Neighbor(up, MovementMode.CLIMB, 8.0D + distance(current, up)));
+                    // 梯子格下方有支撑面时，先跳上方块顶部再进入梯子，不能在方块侧面横移入梯。
+                    MovementMode entryMode = up.floorSupported() ? MovementMode.JUMP : MovementMode.CLIMB;
+                    double entryCost = entryMode == MovementMode.JUMP ? 2.5D : 8.0D;
+                    output.add(new Neighbor(up, entryMode, entryCost + distance(current, up)));
                 }
                 PathCell ladderBelow = snapshot.cell(current.x() + dx, current.y() - 1, current.z() + dz);
                 if (ladderBelow != null
@@ -260,7 +265,7 @@ final class HybridPathfinder {
      * Water-to-water moves stay permissive so narrow canals remain navigable, but a diagonal still
      * requires both orthogonal corner columns. A same-layer walk exit reuses the corridor check, an
      * adjacent ladder/vine/scaffold is entered with a {@code CLIMB} edge so the swimmer can climb
-     * out of a pool, and vertical (jump/fall) exits are emitted for orthogonal directions only,
+     * out of a pool, and vertical (shore-exit/fall) exits are emitted for orthogonal directions only,
      * mirroring {@link #addVerticalTransitions} so the body never cuts the destination-level corner.
      */
     private static void addWaterNeighbors(PathSnapshot snapshot, PathCell current, MovementIntent intent, List<Neighbor> output) {
@@ -309,7 +314,8 @@ final class HybridPathfinder {
                                 && next.standY() - current.standY() <= 1.25D
                                 && canCrossHorizontalBoundary(snapshot, current, next)
                                 && hasVerticalPassage(snapshot, current, next)) {
-                            output.add(new Neighbor(next, MovementMode.JUMP, 2.5D + distance(current, next)));
+                            // 水面上岸是独立动作，避免误用陆地翻越方块的起跳规则。
+                            output.add(new Neighbor(next, MovementMode.SWIM_EXIT, 2.5D + distance(current, next)));
                         }
                     } else {
                         if (!diagonal
@@ -734,7 +740,8 @@ final class HybridPathfinder {
      * Returns whether the mode performs a discrete action that must not be smoothed away.
      */
     private static boolean isActionMode(MovementMode mode) {
-        return mode == MovementMode.JUMP || mode == MovementMode.SWIM || mode == MovementMode.CLIMB || mode == MovementMode.FALL;
+        return mode == MovementMode.JUMP || mode == MovementMode.SWIM || mode == MovementMode.SWIM_EXIT
+                || mode == MovementMode.CLIMB || mode == MovementMode.FALL;
     }
 
     /**

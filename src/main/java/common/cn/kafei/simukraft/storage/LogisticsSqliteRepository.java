@@ -23,30 +23,23 @@ public final class LogisticsSqliteRepository {
         this.database = database;
     }
 
-    public synchronized void saveAll(CompoundTag tag) {
-        try (Connection connection = database.openConnection()) {
-            connection.setAutoCommit(false);
-            SqliteNbtHelper.clearTables(connection, "logistics_channels", "logistics_ports", "logistics_clients", "logistics_warehouses");
-            try {
-                ListTag warehouses = tag.getList("Warehouses", CompoundTag.TAG_COMPOUND);
-                for (int i = 0; i < warehouses.size(); i++) {
-                    saveWarehouse(connection, warehouses.getCompound(i));
-                }
-                ListTag clients = tag.getList("Clients", CompoundTag.TAG_COMPOUND);
-                for (int i = 0; i < clients.size(); i++) {
-                    saveClient(connection, clients.getCompound(i));
-                }
-                ListTag channels = tag.getList("Channels", CompoundTag.TAG_COMPOUND);
-                for (int i = 0; i < channels.size(); i++) {
-                    saveChannel(connection, channels.getCompound(i));
-                }
-                connection.commit();
-            } catch (SQLException exception) {
-                connection.rollback();
-                throw exception;
-            }
-        } catch (SQLException exception) {
-            SimuKraft.LOGGER.error("Failed to save logistics data to SQLite", exception);
+    /**
+     * saveAll: 把内存中的物流数据全部 upsert 进库。
+     * <p>不再清空四张表再重写：仓库/客户端/通道的删除都有各自的 delete 方法，
+     * 按不完整的内存快照清表会在加载失败时抹掉整个存档的物流配置。
+     */
+    public void saveAll(Connection connection, CompoundTag tag) throws SQLException {
+        ListTag warehouses = tag.getList("Warehouses", CompoundTag.TAG_COMPOUND);
+        for (int i = 0; i < warehouses.size(); i++) {
+            saveWarehouse(connection, warehouses.getCompound(i));
+        }
+        ListTag clients = tag.getList("Clients", CompoundTag.TAG_COMPOUND);
+        for (int i = 0; i < clients.size(); i++) {
+            saveClient(connection, clients.getCompound(i));
+        }
+        ListTag channels = tag.getList("Channels", CompoundTag.TAG_COMPOUND);
+        for (int i = 0; i < channels.size(); i++) {
+            saveChannel(connection, channels.getCompound(i));
         }
     }
 
@@ -55,7 +48,7 @@ public final class LogisticsSqliteRepository {
         ListTag warehouses = new ListTag();
         ListTag clients = new ListTag();
         ListTag channels = new ListTag();
-        try (Connection connection = database.openConnection()) {
+        try (Connection connection = database.borrowConnection()) {
             loadWarehouses(connection, warehouses);
             loadClients(connection, clients);
             loadChannels(connection, channels);
@@ -63,53 +56,43 @@ public final class LogisticsSqliteRepository {
             tag.put("Clients", clients);
             tag.put("Channels", channels);
             return warehouses.isEmpty() && clients.isEmpty() && channels.isEmpty() ? null : tag;
-        } catch (SQLException exception) {
+        } catch (SQLException | IllegalArgumentException exception) {
+            database.markDegraded("loadAll(logistics)", exception);
             SimuKraft.LOGGER.error("Failed to load logistics data from SQLite", exception);
             return null;
         }
     }
 
-    public synchronized void saveDimension(CompoundTag tag, String dimensionId) {
+    public void saveDimension(Connection connection, CompoundTag tag, String dimensionId) throws SQLException {
         if (dimensionId == null || dimensionId.isBlank()) {
-            saveAll(tag);
+            saveAll(connection, tag);
             return;
         }
-        try (Connection connection = database.openConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                deleteDimension(connection, dimensionId);
-                Set<String> warehouseIds = new HashSet<>();
-                Set<String> clientIds = new HashSet<>();
-                ListTag warehouses = tag.getList("Warehouses", CompoundTag.TAG_COMPOUND);
-                for (int i = 0; i < warehouses.size(); i++) {
-                    CompoundTag warehouse = warehouses.getCompound(i);
-                    if (sameDimension(warehouse, dimensionId)) {
-                        saveWarehouse(connection, warehouse);
-                        warehouseIds.add(warehouse.getUUID("WarehouseId").toString());
-                    }
-                }
-                ListTag clients = tag.getList("Clients", CompoundTag.TAG_COMPOUND);
-                for (int i = 0; i < clients.size(); i++) {
-                    CompoundTag client = clients.getCompound(i);
-                    if (sameDimension(client, dimensionId)) {
-                        saveClient(connection, client);
-                        clientIds.add(client.getUUID("ClientId").toString());
-                    }
-                }
-                ListTag channels = tag.getList("Channels", CompoundTag.TAG_COMPOUND);
-                for (int i = 0; i < channels.size(); i++) {
-                    CompoundTag channel = channels.getCompound(i);
-                    if (belongsToDimension(channel, warehouseIds, clientIds)) {
-                        saveChannel(connection, channel);
-                    }
-                }
-                connection.commit();
-            } catch (SQLException exception) {
-                rollbackQuietly(connection, exception);
-                throw exception;
+        // 不再 deleteDimension 后重写：删除只走各自的 delete 方法，这里只做 upsert。
+        Set<String> warehouseIds = new HashSet<>();
+        Set<String> clientIds = new HashSet<>();
+        ListTag warehouses = tag.getList("Warehouses", CompoundTag.TAG_COMPOUND);
+        for (int i = 0; i < warehouses.size(); i++) {
+            CompoundTag warehouse = warehouses.getCompound(i);
+            if (sameDimension(warehouse, dimensionId)) {
+                saveWarehouse(connection, warehouse);
+                warehouseIds.add(warehouse.getUUID("WarehouseId").toString());
             }
-        } catch (SQLException exception) {
-            SimuKraft.LOGGER.error("Failed to save logistics dimension '{}' to SQLite", dimensionId, exception);
+        }
+        ListTag clients = tag.getList("Clients", CompoundTag.TAG_COMPOUND);
+        for (int i = 0; i < clients.size(); i++) {
+            CompoundTag client = clients.getCompound(i);
+            if (sameDimension(client, dimensionId)) {
+                saveClient(connection, client);
+                clientIds.add(client.getUUID("ClientId").toString());
+            }
+        }
+        ListTag channels = tag.getList("Channels", CompoundTag.TAG_COMPOUND);
+        for (int i = 0; i < channels.size(); i++) {
+            CompoundTag channel = channels.getCompound(i);
+            if (belongsToDimension(channel, warehouseIds, clientIds)) {
+                saveChannel(connection, channel);
+            }
         }
     }
 
@@ -121,7 +104,7 @@ public final class LogisticsSqliteRepository {
         ListTag warehouses = new ListTag();
         ListTag clients = new ListTag();
         ListTag channels = new ListTag();
-        try (Connection connection = database.openConnection()) {
+        try (Connection connection = database.borrowConnection()) {
             loadWarehouses(connection, warehouses, dimensionId);
             loadClients(connection, clients, dimensionId);
             loadChannels(connection, channels, dimensionId);
@@ -129,128 +112,76 @@ public final class LogisticsSqliteRepository {
             tag.put("Clients", clients);
             tag.put("Channels", channels);
             return warehouses.isEmpty() && clients.isEmpty() && channels.isEmpty() ? null : tag;
-        } catch (SQLException exception) {
+        } catch (SQLException | IllegalArgumentException exception) {
+            database.markDegraded("loadDimension(logistics)", exception);
             SimuKraft.LOGGER.error("Failed to load logistics dimension '{}' from SQLite", dimensionId, exception);
             return null;
         }
     }
 
-    public synchronized void upsertWarehouse(CompoundTag warehouseTag) {
-        try (Connection connection = database.openConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                String warehouseId = warehouseTag.getUUID("WarehouseId").toString();
-                deleteWarehousesAt(connection, warehouseTag.getLong("BoxPos"), warehouseId, warehouseTag.getString("DimensionId"));
-                try (PreparedStatement deleteContainers = connection.prepareStatement("DELETE FROM logistics_ports WHERE owner_id = ? AND owner_type = 'warehouse'")) {
-                    deleteContainers.setString(1, warehouseId);
-                    deleteContainers.executeUpdate();
-                }
-                saveWarehouse(connection, warehouseTag);
-                connection.commit();
-            } catch (SQLException exception) {
-                rollbackQuietly(connection, exception);
-                throw exception;
-            }
-        } catch (SQLException exception) {
-            SimuKraft.LOGGER.error("Failed to save logistics warehouse to SQLite", exception);
+    public void upsertWarehouse(Connection connection, CompoundTag warehouseTag) throws SQLException {
+        String warehouseId = warehouseTag.getUUID("WarehouseId").toString();
+        try (PreparedStatement deleteContainers = connection.prepareStatement("DELETE FROM logistics_ports WHERE owner_id = ? AND owner_type = 'warehouse'")) {
+            deleteContainers.setString(1, warehouseId);
+            deleteContainers.executeUpdate();
         }
+        saveWarehouse(connection, warehouseTag);
     }
 
-    public synchronized void upsertClient(CompoundTag clientTag) {
-        try (Connection connection = database.openConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                String clientId = clientTag.getUUID("ClientId").toString();
-                deleteClientsAt(connection, clientTag.getLong("BoxPos"), clientId, clientTag.getString("DimensionId"));
-                try (PreparedStatement deletePorts = connection.prepareStatement("DELETE FROM logistics_ports WHERE owner_id = ? AND owner_type = 'client'")) {
-                    deletePorts.setString(1, clientId);
-                    deletePorts.executeUpdate();
-                }
-                saveClient(connection, clientTag);
-                connection.commit();
-            } catch (SQLException exception) {
-                rollbackQuietly(connection, exception);
-                throw exception;
-            }
-        } catch (SQLException exception) {
-            SimuKraft.LOGGER.error("Failed to save logistics client to SQLite", exception);
+    public void upsertClient(Connection connection, CompoundTag clientTag) throws SQLException {
+        String clientId = clientTag.getUUID("ClientId").toString();
+        try (PreparedStatement deletePorts = connection.prepareStatement("DELETE FROM logistics_ports WHERE owner_id = ? AND owner_type = 'client'")) {
+            deletePorts.setString(1, clientId);
+            deletePorts.executeUpdate();
         }
+        saveClient(connection, clientTag);
     }
 
-    public synchronized void upsertChannel(CompoundTag channelTag) {
-        try (Connection connection = database.openConnection()) {
-            saveChannel(connection, channelTag);
-        } catch (SQLException exception) {
-            SimuKraft.LOGGER.error("Failed to save logistics channel to SQLite", exception);
-        }
+    public void upsertChannel(Connection connection, CompoundTag channelTag) throws SQLException {
+        saveChannel(connection, channelTag);
     }
 
-    public synchronized void deleteWarehouse(UUID warehouseId) {
+    public void deleteWarehouse(Connection connection, UUID warehouseId) throws SQLException {
         if (warehouseId == null) {
             return;
         }
-        try (Connection connection = database.openConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                String id = warehouseId.toString();
-                try (PreparedStatement ports = connection.prepareStatement("DELETE FROM logistics_ports WHERE owner_id = ? AND owner_type = 'warehouse'");
-                     PreparedStatement channels = connection.prepareStatement("DELETE FROM logistics_channels WHERE warehouse_id = ?");
-                     PreparedStatement warehouse = connection.prepareStatement("DELETE FROM logistics_warehouses WHERE warehouse_id = ?")) {
-                    ports.setString(1, id);
-                    ports.executeUpdate();
-                    channels.setString(1, id);
-                    channels.executeUpdate();
-                    warehouse.setString(1, id);
-                    warehouse.executeUpdate();
-                }
-                connection.commit();
-            } catch (SQLException exception) {
-                rollbackQuietly(connection, exception);
-                throw exception;
-            }
-        } catch (SQLException exception) {
-            SimuKraft.LOGGER.error("Failed to delete logistics warehouse from SQLite", exception);
+        String id = warehouseId.toString();
+        try (PreparedStatement ports = connection.prepareStatement("DELETE FROM logistics_ports WHERE owner_id = ? AND owner_type = 'warehouse'");
+             PreparedStatement channels = connection.prepareStatement("DELETE FROM logistics_channels WHERE warehouse_id = ?");
+             PreparedStatement warehouse = connection.prepareStatement("DELETE FROM logistics_warehouses WHERE warehouse_id = ?")) {
+            ports.setString(1, id);
+            ports.executeUpdate();
+            channels.setString(1, id);
+            channels.executeUpdate();
+            warehouse.setString(1, id);
+            warehouse.executeUpdate();
         }
     }
 
-    public synchronized void deleteClient(UUID clientId) {
+    public void deleteClient(Connection connection, UUID clientId) throws SQLException {
         if (clientId == null) {
             return;
         }
-        try (Connection connection = database.openConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                String id = clientId.toString();
-                try (PreparedStatement ports = connection.prepareStatement("DELETE FROM logistics_ports WHERE owner_id = ? AND owner_type = 'client'");
-                     PreparedStatement channels = connection.prepareStatement("DELETE FROM logistics_channels WHERE client_id = ?");
-                     PreparedStatement client = connection.prepareStatement("DELETE FROM logistics_clients WHERE client_id = ?")) {
-                    ports.setString(1, id);
-                    ports.executeUpdate();
-                    channels.setString(1, id);
-                    channels.executeUpdate();
-                    client.setString(1, id);
-                    client.executeUpdate();
-                }
-                connection.commit();
-            } catch (SQLException exception) {
-                rollbackQuietly(connection, exception);
-                throw exception;
-            }
-        } catch (SQLException exception) {
-            SimuKraft.LOGGER.error("Failed to delete logistics client from SQLite", exception);
+        String id = clientId.toString();
+        try (PreparedStatement ports = connection.prepareStatement("DELETE FROM logistics_ports WHERE owner_id = ? AND owner_type = 'client'");
+             PreparedStatement channels = connection.prepareStatement("DELETE FROM logistics_channels WHERE client_id = ?");
+             PreparedStatement client = connection.prepareStatement("DELETE FROM logistics_clients WHERE client_id = ?")) {
+            ports.setString(1, id);
+            ports.executeUpdate();
+            channels.setString(1, id);
+            channels.executeUpdate();
+            client.setString(1, id);
+            client.executeUpdate();
         }
     }
 
-    public synchronized void deleteChannel(UUID channelId) {
+    public void deleteChannel(Connection connection, UUID channelId) throws SQLException {
         if (channelId == null) {
             return;
         }
-        try (Connection connection = database.openConnection();
-             PreparedStatement statement = connection.prepareStatement("DELETE FROM logistics_channels WHERE channel_id = ?")) {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM logistics_channels WHERE channel_id = ?")) {
             statement.setString(1, channelId.toString());
             statement.executeUpdate();
-        } catch (SQLException exception) {
-            SimuKraft.LOGGER.error("Failed to delete logistics channel from SQLite", exception);
         }
     }
 
@@ -284,30 +215,6 @@ public final class LogisticsSqliteRepository {
         }
     }
 
-    private void deleteDimension(Connection connection, String dimensionId) throws SQLException {
-        try (PreparedStatement channels = connection.prepareStatement(
-                "DELETE FROM logistics_channels WHERE warehouse_id IN (SELECT warehouse_id FROM logistics_warehouses WHERE dimension_id = ?) "
-                        + "OR client_id IN (SELECT client_id FROM logistics_clients WHERE dimension_id = ?)");
-             PreparedStatement warehousePorts = connection.prepareStatement(
-                     "DELETE FROM logistics_ports WHERE owner_type = 'warehouse' AND owner_id IN (SELECT warehouse_id FROM logistics_warehouses WHERE dimension_id = ?)");
-             PreparedStatement clientPorts = connection.prepareStatement(
-                     "DELETE FROM logistics_ports WHERE owner_type = 'client' AND owner_id IN (SELECT client_id FROM logistics_clients WHERE dimension_id = ?)");
-             PreparedStatement clients = connection.prepareStatement("DELETE FROM logistics_clients WHERE dimension_id = ?");
-             PreparedStatement warehouses = connection.prepareStatement("DELETE FROM logistics_warehouses WHERE dimension_id = ?")) {
-            channels.setString(1, dimensionId);
-            channels.setString(2, dimensionId);
-            channels.executeUpdate();
-            warehousePorts.setString(1, dimensionId);
-            warehousePorts.executeUpdate();
-            clientPorts.setString(1, dimensionId);
-            clientPorts.executeUpdate();
-            clients.setString(1, dimensionId);
-            clients.executeUpdate();
-            warehouses.setString(1, dimensionId);
-            warehouses.executeUpdate();
-        }
-    }
-
     private List<String> idsAt(Connection connection, String table, String idColumn, String posColumn, long boxPosLong, String keepId, String dimensionId) throws SQLException {
         List<String> ids = new ArrayList<>();
         String sql = dimensionId == null || dimensionId.isBlank()
@@ -328,14 +235,6 @@ public final class LogisticsSqliteRepository {
         return ids;
     }
 
-    private void rollbackQuietly(Connection connection, SQLException exception) {
-        try {
-            connection.rollback();
-        } catch (SQLException rollbackException) {
-            exception.addSuppressed(rollbackException);
-        }
-    }
-
     private boolean sameDimension(CompoundTag tag, String dimensionId) {
         String tagDimension = tag.getString("DimensionId");
         return tagDimension.isBlank() || dimensionId.equals(tagDimension);
@@ -347,10 +246,14 @@ public final class LogisticsSqliteRepository {
     }
 
     private void saveWarehouse(Connection connection, CompoundTag tag) throws SQLException {
+        String warehouseId = tag.getUUID("WarehouseId").toString();
+        // 同一位置被新仓库顶替时，旧行（连同其端口与通道）必须先清掉：
+        // 表上有 UNIQUE(dimension_id, box_pos_long)，批量保存路径不做预清理会让 INSERT 撞约束、整条写入被丢弃。
+        deleteWarehousesAt(connection, tag.getLong("BoxPos"), warehouseId, tag.getString("DimensionId"));
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO logistics_warehouses(warehouse_id, box_pos_long, city_id, dimension_id, updated_at) VALUES(?, ?, ?, ?, ?) "
                         + "ON CONFLICT(warehouse_id) DO UPDATE SET box_pos_long = excluded.box_pos_long, city_id = excluded.city_id, dimension_id = excluded.dimension_id, updated_at = excluded.updated_at")) {
-            statement.setString(1, tag.getUUID("WarehouseId").toString());
+            statement.setString(1, warehouseId);
             statement.setLong(2, tag.getLong("BoxPos"));
             SqliteNbtHelper.setNullableString(statement, 3, tag.hasUUID("CityId") ? tag.getUUID("CityId").toString() : null);
             statement.setString(4, tag.getString("DimensionId"));
@@ -360,15 +263,18 @@ public final class LogisticsSqliteRepository {
         ListTag containers = tag.getList("Containers", CompoundTag.TAG_COMPOUND);
         for (int i = 0; i < containers.size(); i++) {
             CompoundTag container = containers.getCompound(i);
-            savePort(connection, tag.getUUID("WarehouseId").toString(), "warehouse", "container_" + i, "container", "warehouse", BlockPos.of(container.getLong("Pos")));
+            savePort(connection, warehouseId, "warehouse", "container_" + i, "container", "warehouse", BlockPos.of(container.getLong("Pos")));
         }
     }
 
     private void saveClient(Connection connection, CompoundTag tag) throws SQLException {
+        String clientId = tag.getUUID("ClientId").toString();
+        // 同 saveWarehouse：同位置的旧客户端行不清理会连端口、通道一起残留成幽灵数据。
+        deleteClientsAt(connection, tag.getLong("BoxPos"), clientId, tag.getString("DimensionId"));
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO logistics_clients(client_id, box_pos_long, city_id, dimension_id, name, automatic, source_type, source_id, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) "
                         + "ON CONFLICT(client_id) DO UPDATE SET box_pos_long = excluded.box_pos_long, city_id = excluded.city_id, dimension_id = excluded.dimension_id, name = excluded.name, automatic = excluded.automatic, source_type = excluded.source_type, source_id = excluded.source_id, updated_at = excluded.updated_at")) {
-            statement.setString(1, tag.getUUID("ClientId").toString());
+            statement.setString(1, clientId);
             statement.setLong(2, tag.getLong("BoxPos"));
             SqliteNbtHelper.setNullableString(statement, 3, tag.hasUUID("CityId") ? tag.getUUID("CityId").toString() : null);
             statement.setString(4, tag.getString("DimensionId"));
@@ -382,7 +288,7 @@ public final class LogisticsSqliteRepository {
         ListTag ports = tag.getList("Ports", CompoundTag.TAG_COMPOUND);
         for (int i = 0; i < ports.size(); i++) {
             CompoundTag port = ports.getCompound(i);
-            savePort(connection, tag.getUUID("ClientId").toString(), "client", port.getString("Id"), port.getString("Name"), port.getString("Kind"), BlockPos.of(port.getLong("Pos")));
+            savePort(connection, clientId, "client", port.getString("Id"), port.getString("Name"), port.getString("Kind"), BlockPos.of(port.getLong("Pos")));
         }
     }
 
@@ -480,7 +386,9 @@ public final class LogisticsSqliteRepository {
 
     private ListTag loadPorts(Connection connection, String ownerId, String ownerType) throws SQLException {
         ListTag ports = new ListTag();
-        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM logistics_ports WHERE owner_id = ? AND owner_type = ? ORDER BY port_id")) {
+        // port_id 是 "container_10" / "input_2" 这类带数值后缀的 id：纯字典序会把 10 排到 2 前面，
+        // 先按长度再按字典序即等价于按数值后缀排序，加载回来的端口顺序才与保存时一致。
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM logistics_ports WHERE owner_id = ? AND owner_type = ? ORDER BY LENGTH(port_id), port_id")) {
             statement.setString(1, ownerId);
             statement.setString(2, ownerType);
             try (ResultSet resultSet = statement.executeQuery()) {
@@ -521,7 +429,8 @@ public final class LogisticsSqliteRepository {
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
                     CompoundTag tag = new CompoundTag();
-                    tag.putUUID("ChannelId", UUID.fromString(resultSet.getString("channel_id")));
+                    String channelId = resultSet.getString("channel_id");
+                    tag.putUUID("ChannelId", UUID.fromString(channelId));
                     SqliteNbtHelper.putNullableUuid(tag, "WarehouseId", resultSet.getString("warehouse_id"));
                     SqliteNbtHelper.putNullableUuid(tag, "ClientId", resultSet.getString("client_id"));
                     tag.putString("Direction", resultSet.getString("direction"));
@@ -533,6 +442,8 @@ public final class LogisticsSqliteRepository {
                     try {
                         tag.put("Filters", net.minecraft.nbt.TagParser.parseTag("{Filters:" + resultSet.getString("filters") + "}").getList("Filters", CompoundTag.TAG_COMPOUND));
                     } catch (Exception exception) {
+                        // 过滤规则损坏时置空但必须留痕，否则通道行为变化无从排查。
+                        SimuKraft.LOGGER.warn("Failed to parse filters of logistics channel {} from SQLite; falling back to empty filters", channelId, exception);
                         tag.put("Filters", new ListTag());
                     }
                     output.add(tag);

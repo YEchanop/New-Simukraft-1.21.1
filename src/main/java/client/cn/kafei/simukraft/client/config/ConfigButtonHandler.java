@@ -7,6 +7,7 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -91,15 +92,14 @@ public final class ConfigButtonHandler {
         return fallback;
     }
 
-    /** findStatsButton：在暂停菜单查找统计信息按钮。 */
+    /** findStatsButton：通过原版翻译键查找暂停菜单的统计信息按钮。 */
     @Nullable
     private Button findStatsButton(PauseScreen screen) {
         for (GuiEventListener listener : screen.children()) {
-            if (listener instanceof Button button) {
-                String text = button.getMessage().getString();
-                if (text.contains("统计信息") || text.contains("Statistics") || text.contains("Stats")) {
-                    return button;
-                }
+            if (listener instanceof Button button
+                    && button.getMessage().getContents() instanceof TranslatableContents contents
+                    && "gui.stats".equals(contents.getKey())) {
+                return button;
             }
         }
         return null;

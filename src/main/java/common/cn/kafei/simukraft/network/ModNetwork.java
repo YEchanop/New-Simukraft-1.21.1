@@ -23,6 +23,7 @@ import common.cn.kafei.simukraft.network.city.core.CityCoreCreateCityPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreManageCityPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpenRequestPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpenResponsePacket;
+import common.cn.kafei.simukraft.network.city.core.CityUpgradeRequestPacket;
 import common.cn.kafei.simukraft.network.city.map.CityCoreMapRequestPacket;
 import common.cn.kafei.simukraft.network.city.map.CityCoreMapResponsePacket;
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageActionPacket;
@@ -58,6 +59,7 @@ import common.cn.kafei.simukraft.network.logistics.LogisticsWarehouseGridShiftCl
 import common.cn.kafei.simukraft.network.medical.MedicalControlBoxDemolishPacket;
 import common.cn.kafei.simukraft.network.medical.MedicalControlBoxOpenRequestPacket;
 import common.cn.kafei.simukraft.network.medical.MedicalControlBoxOpenResponsePacket;
+import common.cn.kafei.simukraft.network.mineraldrilling.MineralDrillingControlBoxOpenRequestPacket;
 import common.cn.kafei.simukraft.network.manifest.ManifestTogglePacket;
 import common.cn.kafei.simukraft.network.planner.CreatePlanningTaskPacket;
 import common.cn.kafei.simukraft.network.planner.PlannerMaterialScanRequestPacket;
@@ -71,14 +73,23 @@ import common.cn.kafei.simukraft.network.npc.state.EmploymentStateResponsePacket
 import common.cn.kafei.simukraft.network.config.ServerConfigSavePacket;
 import common.cn.kafei.simukraft.network.path.NpcPathDebugRequestPacket;
 import common.cn.kafei.simukraft.network.path.NpcPathDebugSyncPacket;
+import common.cn.kafei.simukraft.network.rts.RtsBuildingBoundsRequestPacket;
+import common.cn.kafei.simukraft.network.rts.RtsBuildingBoundsSyncPacket;
+import common.cn.kafei.simukraft.network.rts.RtsCitizenActionPacket;
+import common.cn.kafei.simukraft.network.rts.RtsChunkViewPacket;
+import common.cn.kafei.simukraft.network.rts.RtsDemolishPacket;
+import common.cn.kafei.simukraft.network.rts.RtsMovePacket;
+import common.cn.kafei.simukraft.network.rts.RtsOpenTargetPacket;
+import common.cn.kafei.simukraft.network.rts.RtsPlaceBlockPacket;
 import common.cn.kafei.simukraft.network.toast.InfoToastPacket;
+import common.cn.kafei.simukraft.network.geology.GeologicalSurveyHintPacket;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 @SuppressWarnings("null")
 public final class ModNetwork {
-    private static final String NETWORK_VERSION = "23";
+    private static final String NETWORK_VERSION = "31";
 
     private ModNetwork() {
     }
@@ -89,6 +100,7 @@ public final class ModNetwork {
         registrar.playToServer(CityCoreOpenRequestPacket.TYPE, CityCoreOpenRequestPacket.STREAM_CODEC, CityCoreOpenRequestPacket::handle);
         registrar.playToServer(CityCoreCreateCityPacket.TYPE, CityCoreCreateCityPacket.STREAM_CODEC, CityCoreCreateCityPacket::handle);
         registrar.playToServer(CityCoreManageCityPacket.TYPE, CityCoreManageCityPacket.STREAM_CODEC, CityCoreManageCityPacket::handle);
+        registrar.playToServer(CityUpgradeRequestPacket.TYPE, CityUpgradeRequestPacket.STREAM_CODEC, CityUpgradeRequestPacket::handle);
         registrar.playToServer(CityCoreMembersRequestPacket.TYPE, CityCoreMembersRequestPacket.STREAM_CODEC, CityCoreMembersRequestPacket::handle);
         registrar.playToServer(CityCoreMemberActionPacket.TYPE, CityCoreMemberActionPacket.STREAM_CODEC, CityCoreMemberActionPacket::handle);
         registrar.playToServer(CityCitizenManageRequestPacket.TYPE, CityCitizenManageRequestPacket.STREAM_CODEC, CityCitizenManageRequestPacket::handle);
@@ -116,6 +128,7 @@ public final class ModNetwork {
         registrar.playToServer(IndustrialControlBoxDemolishPacket.TYPE, IndustrialControlBoxDemolishPacket.STREAM_CODEC, IndustrialControlBoxDemolishPacket::handle);
         registrar.playToServer(CommercialControlBoxOpenRequestPacket.TYPE, CommercialControlBoxOpenRequestPacket.STREAM_CODEC, CommercialControlBoxOpenRequestPacket::handle);
         registrar.playToServer(MedicalControlBoxOpenRequestPacket.TYPE, MedicalControlBoxOpenRequestPacket.STREAM_CODEC, MedicalControlBoxOpenRequestPacket::handle);
+        registrar.playToServer(MineralDrillingControlBoxOpenRequestPacket.TYPE, MineralDrillingControlBoxOpenRequestPacket.STREAM_CODEC, MineralDrillingControlBoxOpenRequestPacket::handle);
         registrar.playToServer(MedicalControlBoxDemolishPacket.TYPE, MedicalControlBoxDemolishPacket.STREAM_CODEC, MedicalControlBoxDemolishPacket::handle);
         registrar.playToServer(CommercialControlBoxActionPacket.TYPE, CommercialControlBoxActionPacket.STREAM_CODEC, CommercialControlBoxActionPacket::handle);
         registrar.playToServer(CommercialControlBoxDemolishPacket.TYPE, CommercialControlBoxDemolishPacket.STREAM_CODEC, CommercialControlBoxDemolishPacket::handle);
@@ -131,6 +144,13 @@ public final class ModNetwork {
         registrar.playToServer(PlannerMaterialScanRequestPacket.TYPE, PlannerMaterialScanRequestPacket.STREAM_CODEC, PlannerMaterialScanRequestPacket::handle);
         registrar.playToServer(CreatePlanningTaskPacket.TYPE, CreatePlanningTaskPacket.STREAM_CODEC, CreatePlanningTaskPacket::handle);
         registrar.playToServer(NpcPathDebugRequestPacket.TYPE, NpcPathDebugRequestPacket.STREAM_CODEC, NpcPathDebugRequestPacket::handle);
+        registrar.playToServer(RtsBuildingBoundsRequestPacket.TYPE, RtsBuildingBoundsRequestPacket.STREAM_CODEC, RtsBuildingBoundsRequestPacket::handle);
+        registrar.playToServer(RtsChunkViewPacket.TYPE, RtsChunkViewPacket.STREAM_CODEC, RtsChunkViewPacket::handle);
+        registrar.playToServer(RtsCitizenActionPacket.TYPE, RtsCitizenActionPacket.STREAM_CODEC, RtsCitizenActionPacket::handle);
+        registrar.playToServer(RtsDemolishPacket.TYPE, RtsDemolishPacket.STREAM_CODEC, RtsDemolishPacket::handle);
+        registrar.playToServer(RtsMovePacket.TYPE, RtsMovePacket.STREAM_CODEC, RtsMovePacket::handle);
+        registrar.playToServer(RtsOpenTargetPacket.TYPE, RtsOpenTargetPacket.STREAM_CODEC, RtsOpenTargetPacket::handle);
+        registrar.playToServer(RtsPlaceBlockPacket.TYPE, RtsPlaceBlockPacket.STREAM_CODEC, RtsPlaceBlockPacket::handle);
         registrar.playToServer(ManifestTogglePacket.TYPE, ManifestTogglePacket.STREAM_CODEC, ManifestTogglePacket::handle);
         registrar.playToServer(ServerConfigSavePacket.TYPE, ServerConfigSavePacket.STREAM_CODEC, ServerConfigSavePacket::handle);
         registrar.playToClient(CityCoreOpenResponsePacket.TYPE, CityCoreOpenResponsePacket.STREAM_CODEC, CityCoreOpenResponsePacket::handle);
@@ -158,5 +178,7 @@ public final class ModNetwork {
         registrar.playToClient(PlannerMaterialScanResponsePacket.TYPE, PlannerMaterialScanResponsePacket.STREAM_CODEC, PlannerMaterialScanResponsePacket::handle);
         registrar.playToClient(NpcPathDebugSyncPacket.TYPE, NpcPathDebugSyncPacket.STREAM_CODEC, NpcPathDebugSyncPacket::handle);
         registrar.playToClient(InfoToastPacket.TYPE, InfoToastPacket.STREAM_CODEC, InfoToastPacket::handle);
+        registrar.playToClient(GeologicalSurveyHintPacket.TYPE, GeologicalSurveyHintPacket.STREAM_CODEC, GeologicalSurveyHintPacket::handle);
+        registrar.playToClient(RtsBuildingBoundsSyncPacket.TYPE, RtsBuildingBoundsSyncPacket.STREAM_CODEC, RtsBuildingBoundsSyncPacket::handle);
     }
 }

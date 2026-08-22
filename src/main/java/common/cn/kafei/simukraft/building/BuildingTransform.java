@@ -9,6 +9,8 @@ import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.Locale;
+
 @SuppressWarnings({"unchecked", "null","deprecation"})
 public final class BuildingTransform {
     private BuildingTransform() {
@@ -26,6 +28,11 @@ public final class BuildingTransform {
             z = nextZ;
         }
         return new BlockPos(x, y, z);
+    }
+
+    /** inverseRotatePosition：将已旋转的结构坐标还原为原始结构坐标。 */
+    public static BlockPos inverseRotatePosition(BlockPos pos, int rotationDegrees) {
+        return rotatePosition(pos, -rotationDegrees);
     }
 
     public static Vec3 rotatePosition(Vec3 pos, int rotationDegrees) {
@@ -64,6 +71,19 @@ public final class BuildingTransform {
             case 180 -> Direction.SOUTH;
             case 270 -> Direction.WEST;
             default -> Direction.NORTH;
+        };
+    }
+
+    /** rotationDegreesFromFacing：将建筑存储的朝向名称还原为结构旋转角度。 */
+    public static int rotationDegreesFromFacing(String facing) {
+        if (facing == null) {
+            return 0;
+        }
+        return switch (facing.toLowerCase(Locale.ROOT)) {
+            case "east" -> 90;
+            case "south" -> 180;
+            case "west" -> 270;
+            default -> 0;
         };
     }
 

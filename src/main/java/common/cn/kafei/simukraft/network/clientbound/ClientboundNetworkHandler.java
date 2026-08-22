@@ -13,6 +13,7 @@ import common.cn.kafei.simukraft.network.commercial.CommercialControlBoxOpenResp
 import common.cn.kafei.simukraft.network.commercial.CommercialTradeOpenResponsePacket;
 import common.cn.kafei.simukraft.network.farmland.FarmlandBoxBoundsResponsePacket;
 import common.cn.kafei.simukraft.network.farmland.FarmlandBoxOpenResponsePacket;
+import common.cn.kafei.simukraft.network.geology.GeologicalSurveyHintPacket;
 import common.cn.kafei.simukraft.network.hud.HudSyncPacket;
 import common.cn.kafei.simukraft.network.industrial.IndustrialControlBoxOpenResponsePacket;
 import common.cn.kafei.simukraft.network.industrial.IndustrialControlBoxViewUpdatePacket;
@@ -25,6 +26,7 @@ import common.cn.kafei.simukraft.network.npc.state.EmploymentStateResponsePacket
 import common.cn.kafei.simukraft.network.path.NpcPathDebugSyncPacket;
 import common.cn.kafei.simukraft.network.planner.PlannerMaterialScanResponsePacket;
 import common.cn.kafei.simukraft.network.toast.InfoToastPacket;
+import common.cn.kafei.simukraft.network.rts.RtsBuildingBoundsSyncPacket;
 
 /**
  * ClientboundNetworkHandler: 客户端网络响应处理抽象，避免 common 网络包直接依赖客户端实现。
@@ -131,5 +133,13 @@ public interface ClientboundNetworkHandler {
 
     /** handleInfoToast: 处理客户端提示消息。 */
     default void handleInfoToast(InfoToastPacket packet) {
+    }
+
+    /** handleGeologicalSurveyHint: 处理地质锤准星提示。 */
+    default void handleGeologicalSurveyHint(GeologicalSurveyHintPacket packet) {
+    }
+
+    /** handleRtsBuildingBoundsSync: 更新 RTS 客户端建筑边界快照。 */
+    default void handleRtsBuildingBoundsSync(RtsBuildingBoundsSyncPacket packet) {
     }
 }

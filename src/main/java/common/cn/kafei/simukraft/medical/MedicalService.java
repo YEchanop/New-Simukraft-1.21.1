@@ -15,6 +15,7 @@ import common.cn.kafei.simukraft.citizen.PregnancyStage;
 import common.cn.kafei.simukraft.city.poi.CityPoiData;
 import common.cn.kafei.simukraft.city.poi.CityPoiManager;
 import common.cn.kafei.simukraft.city.poi.CityPoiType;
+import common.cn.kafei.simukraft.city.CityRuntimeService;
 import common.cn.kafei.simukraft.config.ServerConfig;
 import common.cn.kafei.simukraft.entity.CitizenEntity;
 import common.cn.kafei.simukraft.path.CitizenNavigationService;
@@ -84,12 +85,19 @@ public final class MedicalService {
                 && CitizenManager.get(level).getCitizen(citizenId).map(MedicalService::isAdmitted).orElse(false);
     }
 
-    /** isOnMedicalLeave：全孕期、产后和住院居民暂停正常工作。 */
+    /** isOnMedicalLeave：低血量、患病、全孕期、产后和住院居民暂停正常工作。 */
     public static boolean isOnMedicalLeave(CitizenData citizen, long currentDay) {
+        return isOnMedicalLeave(citizen, currentDay, ServerConfig.medicalLowHealthThreshold());
+    }
+
+    /** isOnMedicalLeave：按给定低血量阈值判断居民是否应暂停工作。 */
+    static boolean isOnMedicalLeave(CitizenData citizen, long currentDay, double lowHealthThreshold) {
         if (citizen == null || citizen.dead()) {
             return false;
         }
-        return isAdmitted(citizen)
+        return citizen.health() <= lowHealthThreshold
+                || citizen.disease().isActive()
+                || isAdmitted(citizen)
                 || citizen.medical().postpartumUntilDay() > currentDay
                 || citizen.pregnant();
     }
@@ -168,6 +176,7 @@ public final class MedicalService {
         List<CitizenData> citizens = CitizenManager.get(level).allCitizens().stream()
                 .filter(citizen -> level.dimension().location().toString().equals(citizen.dimensionId()))
                 .filter(citizen -> !citizen.dead())
+                .filter(citizen -> CityRuntimeService.isCitizenActive(level, citizen))
                 .sorted(Comparator.comparing(citizen -> citizen.uuid().toString()))
                 .toList();
         Set<UUID> occupiedBeds = ConcurrentHashMap.newKeySet();
@@ -178,7 +187,15 @@ public final class MedicalService {
                 continue;
             }
             Hospital hospital = hospitalByBed.get(bedId);
-            if (hospital == null || !occupiedBeds.add(bedId)) {
+            if (hospital == null) {
+                CityPoiData assignedBed = CityPoiManager.get(level).getPoi(bedId);
+                if (assignedBed != null && !level.isLoaded(assignedBed.pos())) {
+                    continue;
+                }
+                discharge(level, citizen);
+                continue;
+            }
+            if (!occupiedBeds.add(bedId)) {
                 discharge(level, citizen);
                 continue;
             }
@@ -190,12 +207,19 @@ public final class MedicalService {
             processAdmittedPatient(level, citizen, bed, currentDay);
         }
 
-        List<CitizenData> candidates = citizens.stream()
-                .filter(citizen -> !isAdmitted(citizen))
-                .filter(citizen -> needsCare(level, citizen, currentDay))
-                .sorted(Comparator.comparingInt((CitizenData citizen) -> carePriority(level, citizen, currentDay))
-                        .thenComparing(CitizenData::uuid))
-                .toList();
+        List<CitizenData> candidates = new ArrayList<>();
+        for (CitizenData citizen : citizens) {
+            if (isAdmitted(citizen)) {
+                continue;
+            }
+            if (needsCare(level, citizen, currentDay)) {
+                candidates.add(citizen);
+            } else {
+                clearRecoveredMedicalLeave(level, citizen, currentDay);
+            }
+        }
+        candidates.sort(Comparator.comparingInt((CitizenData citizen) -> carePriority(level, citizen, currentDay))
+                .thenComparing(CitizenData::uuid));
         for (CitizenData citizen : candidates) {
             Hospital hospital = findHospitalForCitizen(level, citizen, hospitals, occupiedBeds);
             if (hospital == null) {
@@ -222,17 +246,19 @@ public final class MedicalService {
         List<Hospital> hospitals = new ArrayList<>();
         CityPoiManager poiManager = CityPoiManager.get(level);
         for (PlacedBuildingRecord building : PlacedBuildingService.getBuildings(level)) {
-            if (building.cityId() == null) {
+            if (building.cityId() == null || !CityRuntimeService.isCityActive(level, building.cityId())) {
                 continue;
             }
             BlockPos boxPos = MedicalControlBoxService.resolveControlBoxPos(level, building);
-            if (!MedicalControlBoxService.isOperational(level, building, boxPos)) {
+            if (boxPos == null || !level.isLoaded(boxPos)
+                    || !MedicalControlBoxService.isOperational(level, building, boxPos)) {
                 continue;
             }
             List<CityPoiData> beds = building.poiInstances().stream()
                     .filter(instance -> instance.poiType() == CityPoiType.MEDICAL)
                     .map(instance -> poiManager.getPoiAt(instance.worldPos()))
-                    .filter(poi -> poi != null && poi.active() && MedicalBedPoiService.isWhiteBedHead(level.getBlockState(poi.pos())))
+                    .filter(poi -> poi != null && poi.active() && level.isLoaded(poi.pos())
+                            && MedicalBedPoiService.isWhiteBedHead(level.getBlockState(poi.pos())))
                     .toList();
             if (beds.isEmpty()) {
                 continue;
@@ -284,10 +310,13 @@ public final class MedicalService {
     }
 
     private static void processAdmittedPatient(ServerLevel level, CitizenData citizen, CityPoiData bed, long currentDay) {
+        if (!level.isLoaded(bed.pos())) {
+            return;
+        }
         CitizenEntity entity = CitizenTeleportService.findCitizenEntity(level, citizen.uuid());
         Vec3 target = CitizenHomeRestService.resolveHomeTarget(level, bed.pos());
         if (entity == null) {
-            CitizenTeleportService.teleportOrSpawnCitizen(level, citizen, target);
+            CityRuntimeService.requestCitizenRecovery(level, citizen);
             return;
         }
         if (!entity.isSleeping()) {
@@ -318,7 +347,7 @@ public final class MedicalService {
             }
         }
         expirePostpartumIfNeeded(level, citizen, currentDay);
-        if (!needsCare(level, citizen, currentDay)) {
+        if (isReadyForDischarge(citizen, entity, currentDay)) {
             discharge(level, citizen);
             return;
         }
@@ -340,14 +369,33 @@ public final class MedicalService {
         }
     }
 
+    /** clearRecoveredMedicalLeave：恢复后释放未住院居民的医疗静养状态。 */
+    private static void clearRecoveredMedicalLeave(ServerLevel level, CitizenData citizen, long currentDay) {
+        if (!shouldClearMedicalLeave(citizen, currentDay, ServerConfig.medicalLowHealthThreshold())) {
+            return;
+        }
+        citizen.setWorkNeedDetail("");
+        citizen.setStatusLabel("");
+        citizen.setWorkStatus(citizen.workplaceId() != null ? CitizenWorkStatus.WORKING : CitizenWorkStatus.IDLE);
+        CitizenService.save(level, citizen.uuid());
+        CitizenEntity entity = CitizenTeleportService.findCitizenEntity(level, citizen.uuid());
+        if (entity != null) {
+            CitizenManager.get(level).syncEntity(entity);
+        }
+    }
+
     // 无床位时引导居民回家静养，避免停在原地
     private static void navigateHomeForMedicalLeave(ServerLevel level, CitizenData citizen) {
         if (citizen.homeId() == null) return;
         CityPoiData home = CityPoiManager.get(level).getPoi(citizen.homeId());
-        if (home == null || !home.active() || home.type() != CityPoiType.RESIDENTIAL) return;
+        if (home == null || !home.active() || home.type() != CityPoiType.RESIDENTIAL || !level.isLoaded(home.pos())) return;
         Vec3 homeTarget = CitizenHomeRestService.resolveHomeTarget(level, home.pos());
+        if (CitizenTeleportService.findCitizenEntity(level, citizen.uuid()) == null) {
+            CityRuntimeService.requestCitizenRecovery(level, citizen);
+            return;
+        }
         if (!CitizenNavigationService.requestMove(level, citizen.uuid(), homeTarget, MovementIntent.RETURN_HOME)) {
-            CitizenTeleportService.teleportOrSpawnCitizen(level, citizen, homeTarget);
+            CitizenTeleportService.teleportLoadedCitizen(level, citizen, homeTarget);
         }
     }
 
@@ -394,6 +442,26 @@ public final class MedicalService {
                 || citizen.pregnant();
     }
 
+    /** shouldClearMedicalLeave：判断无床位静养状态是否已不再需要。 */
+    static boolean shouldClearMedicalLeave(CitizenData citizen, long currentDay,
+            double lowHealthThreshold) {
+        return citizen != null
+                && !isAdmitted(citizen)
+                && MEDICAL_CARE_MARKER.equals(citizen.workNeedDetail())
+                && !isOnMedicalLeave(citizen, currentDay, lowHealthThreshold);
+    }
+
+    /** isReadyForDischarge：血量恢复至满值、疾病治愈且无其他医疗需求时方可出院。 */
+    private static boolean isReadyForDischarge(CitizenData citizen, CitizenEntity entity, long currentDay) {
+        // 血量未恢复至最大值则继续留院
+        if (citizen.health() < entity.getMaxHealth()) {
+            return false;
+        }
+        return !citizen.disease().isActive()
+                && citizen.medical().postpartumUntilDay() <= currentDay
+                && !citizen.pregnant();
+    }
+
     private static int carePriority(ServerLevel level, CitizenData citizen, long currentDay) {
         if (citizen.health() <= ServerConfig.medicalLowHealthThreshold()) return 0;
         if (citizen.pregnant()) return 1;
@@ -436,9 +504,20 @@ public final class MedicalService {
         return bedId != null && bedIds.contains(bedId);
     }
 
-    /** canBypassResidentialCoverage：疾病患者无需住宅即可直接前往同城医院。 */
+    /** canBypassResidentialCoverage：紧急医疗患者无需住宅覆盖即可直接前往同城医院。 */
     static boolean canBypassResidentialCoverage(CitizenData citizen) {
-        return citizen != null && citizen.disease().isActive();
+        if (citizen == null) {
+            return false;
+        }
+        if (citizen.disease().isActive()) {
+            return true;
+        }
+        return canBypassResidentialCoverage(citizen, ServerConfig.medicalLowHealthThreshold());
+    }
+
+    /** canBypassResidentialCoverage：按给定低血量阈值判断是否跳过住宅覆盖限制。 */
+    static boolean canBypassResidentialCoverage(CitizenData citizen, double lowHealthThreshold) {
+        return citizen != null && (citizen.disease().isActive() || citizen.health() <= lowHealthThreshold);
     }
 
     /** mealContexts：将当前营业医院、医生和实际住院患者整理为供餐服务输入。 */
@@ -467,11 +546,17 @@ public final class MedicalService {
 
     private record Hospital(PlacedBuildingRecord building, BlockPos controlBoxPos, int serviceRangeRings, List<CityPoiData> beds) {
         private CityPoiData bed(UUID bedId) {
-            return beds.stream().filter(bed -> bed.poiId().equals(bedId)).findFirst().orElse(null);
+            for (CityPoiData bed : beds) {
+                if (bed.poiId().equals(bedId)) return bed;
+            }
+            return null;
         }
 
         private CityPoiData firstVacant(Set<UUID> occupiedBeds) {
-            return beds.stream().filter(bed -> !occupiedBeds.contains(bed.poiId())).findFirst().orElse(null);
+            for (CityPoiData bed : beds) {
+                if (!occupiedBeds.contains(bed.poiId())) return bed;
+            }
+            return null;
         }
     }
 }

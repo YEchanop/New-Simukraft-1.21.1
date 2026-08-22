@@ -5,7 +5,7 @@ import common.cn.kafei.simukraft.building.BuildingIntegrityService;
 import common.cn.kafei.simukraft.building.PlacedBuildingRecord;
 import common.cn.kafei.simukraft.building.controlbox.ResidentialControlBoxService;
 import common.cn.kafei.simukraft.citizen.CitizenHousingService;
-import common.cn.kafei.simukraft.config.ServerConfig;
+import common.cn.kafei.simukraft.network.rts.RtsRemoteMenuAccess;
 import common.cn.kafei.simukraft.network.toast.InfoToastService;
 import common.cn.kafei.simukraft.registry.ModBlocks;
 import net.minecraft.core.BlockPos;
@@ -47,7 +47,8 @@ public record ResidentialControlBoxOccupancyPacket(BlockPos pos, Action action) 
     }
 
     private static void handleFor(ServerLevel level, ServerPlayer player, ResidentialControlBoxOccupancyPacket packet) {
-        if (!player.blockPosition().closerThan(packet.pos(), 8.0D)) {
+        if (!player.blockPosition().closerThan(packet.pos(), 8.0D)
+                && !RtsRemoteMenuAccess.hasAccess(player, packet.pos())) {
             InfoToastService.warning(player, Component.translatable("message.simukraft.residential_control_box.too_far"));
             return;
         }
@@ -67,7 +68,7 @@ public record ResidentialControlBoxOccupancyPacket(BlockPos pos, Action action) 
         }
         int changed = switch (packet.action()) {
             case ASSIGN_EXISTING -> CitizenHousingService.fillVacantHomes(level, building.cityId());
-            case SPAWN_NEW -> CitizenHousingService.spawnCitizensForVacantHomes(level, building.cityId(), building.worldOrigin(), ServerConfig.populationGrowthMaxPerInterval());
+            case SPAWN_NEW -> CitizenHousingService.spawnCitizensForVacantHomes(level, building.cityId(), building.worldOrigin(), 1);
             case REPAIR_BUILDING -> 0;
         };
         InfoToastService.success(player, Component.translatable(packet.action().messageKey(), changed));

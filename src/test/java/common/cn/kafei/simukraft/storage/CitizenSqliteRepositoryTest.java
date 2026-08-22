@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Constructor;
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,10 +24,12 @@ class CitizenSqliteRepositoryTest {
     void medicalPregnancyAndAgeFieldsRoundTripThroughSqlite() throws Exception {
         UUID citizenId = UUID.randomUUID();
         UUID medicalBedId = UUID.randomUUID();
+        UUID babyBedId = UUID.randomUUID();
         CitizenData citizen = new CitizenData(citizenId);
         citizen.setName("Medical Test");
         citizen.setPregnant(true);
         citizen.setPregnantSince(5L);
+        citizen.setReservedBabyBedPoiId(babyBedId);
         citizen.setLastAgeGrowthDay(9L);
         citizen.setDisease(DiseaseType.FOOD_POISONING, 6L);
         citizen.medical().addDiseaseTreatmentTicks(240L);
@@ -41,7 +44,9 @@ class CitizenSqliteRepositoryTest {
 
         try (SimuSqliteDatabase database = openDatabase(tempDir.resolve("citizens.sqlite"))) {
             CitizenSqliteRepository repository = new CitizenSqliteRepository(database);
-            repository.saveAll(root);
+            try (Connection connection = database.borrowConnection()) {
+                repository.saveAll(connection, root);
+            }
             CompoundTag loadedRoot = repository.loadAll();
 
             assertNotNull(loadedRoot);
@@ -49,6 +54,7 @@ class CitizenSqliteRepositoryTest {
                     loadedRoot.getList("Citizens", CompoundTag.TAG_COMPOUND).getCompound(0));
             assertTrue(loaded.pregnant());
             assertEquals(5L, loaded.pregnantSince());
+            assertEquals(babyBedId, loaded.reservedBabyBedPoiId());
             assertEquals(9L, loaded.lastAgeGrowthDay());
             assertEquals(DiseaseType.FOOD_POISONING, loaded.disease());
             assertEquals(240L, loaded.medical().diseaseTreatmentTicks());

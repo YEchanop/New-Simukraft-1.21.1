@@ -11,9 +11,12 @@ import common.cn.kafei.simukraft.farmland.FarmlandBoxService;
 import common.cn.kafei.simukraft.industrial.IndustrialConstants;
 import common.cn.kafei.simukraft.industrial.IndustrialControlBoxService;
 import common.cn.kafei.simukraft.job.CitizenEmploymentService;
+import common.cn.kafei.simukraft.network.rts.RtsRemoteMenuAccess;
 import common.cn.kafei.simukraft.logistics.LogisticsConstants;
 import common.cn.kafei.simukraft.logistics.LogisticsControlBoxService;
 import common.cn.kafei.simukraft.medical.MedicalControlBoxService;
+import common.cn.kafei.simukraft.mineraldrilling.MineralDrillingConstants;
+import common.cn.kafei.simukraft.mineraldrilling.MineralDrillingControlBoxService;
 import common.cn.kafei.simukraft.network.toast.InfoToastService;
 import common.cn.kafei.simukraft.registry.ModBlocks;
 import net.minecraft.core.BlockPos;
@@ -44,7 +47,7 @@ final class NpcHireAccessValidator {
             InfoToastService.warning(player, Component.translatable("message.simukraft.hire_npc.invalid_source"));
             return null;
         }
-        if (!player.blockPosition().closerThan(sourcePos, 16.0D)) {
+        if (!player.blockPosition().closerThan(sourcePos, 16.0D) && !RtsRemoteMenuAccess.hasAccess(player, sourcePos)) {
             InfoToastService.warning(player, Component.translatable(tooFarMessage(normalizedSource)));
             return null;
         }
@@ -109,6 +112,12 @@ final class NpcHireAccessValidator {
             PlacedBuildingRecord building = IndustrialControlBoxService.resolveBuilding(level, sourcePos);
             return building != null ? building.cityId() : null;
         }
+        if (MineralDrillingConstants.HIRE_SOURCE_TYPE.equals(sourceType)
+                && MineralDrillingConstants.HIRE_ROLE.equals(role)
+                && level.getBlockState(sourcePos).is(ModBlocks.MINERAL_DRILLING_CONTROL_BOX.get())) {
+            PlacedBuildingRecord building = MineralDrillingControlBoxService.resolveBuilding(level, sourcePos);
+            return building != null ? building.cityId() : null;
+        }
         if (CommercialConstants.HIRE_SOURCE_TYPE.equals(sourceType)
                 && CommercialConstants.HIRE_ROLE.equals(role)
                 && level.getBlockState(sourcePos).is(ModBlocks.COMMERCIAL_CONTROL_BOX.get())) {
@@ -157,6 +166,9 @@ final class NpcHireAccessValidator {
         }
         if (IndustrialConstants.HIRE_SOURCE_TYPE.equals(sourceType)) {
             return "message.simukraft.industrial_control_box.too_far";
+        }
+        if (MineralDrillingConstants.HIRE_SOURCE_TYPE.equals(sourceType)) {
+            return "message.simukraft.mineral_drilling.too_far";
         }
         if (CommercialConstants.HIRE_SOURCE_TYPE.equals(sourceType)) {
             return "message.simukraft.commercial_control_box.too_far";

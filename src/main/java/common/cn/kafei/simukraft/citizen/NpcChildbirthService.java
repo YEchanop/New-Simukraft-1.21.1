@@ -8,9 +8,10 @@ import common.cn.kafei.simukraft.building.PlacedBuildingRecord;
 import common.cn.kafei.simukraft.building.PlacedBuildingService;
 import common.cn.kafei.simukraft.city.poi.CityPoiData;
 import common.cn.kafei.simukraft.city.poi.CityPoiManager;
-import common.cn.kafei.simukraft.city.poi.CityPoiType;
+import common.cn.kafei.simukraft.city.CityRuntimeService;
 import common.cn.kafei.simukraft.config.ServerConfig;
 import common.cn.kafei.simukraft.building.MedicalBedPoiService;
+import common.cn.kafei.simukraft.entity.CitizenEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -35,6 +36,7 @@ public final class NpcChildbirthService {
 
             CitizenData wife = manager.getCitizen(family.wifeId()).orElse(null);
             if (wife == null || wife.dead() || !wife.pregnant()) continue;
+            if (!CityRuntimeService.isCitizenActive(level, wife)) continue;
             if (currentDay < wife.pregnantSince() + duration) continue;
 
             giveBirth(level, manager, familyManager, family, wife, random, currentDay);
@@ -50,14 +52,15 @@ public final class NpcChildbirthService {
         // 优先使用怀孕时预约的床位，预约丢失时兜底搜索
         UUID vacantBedPoiId = wife.reservedBabyBedPoiId() != null
                 ? wife.reservedBabyBedPoiId()
-                : findVacantBedInSameBuilding(level, wife);
+                : findVacantBedInSameHousehold(level, wife);
         if (vacantBedPoiId == null) return;
 
         Optional<common.cn.kafei.simukraft.entity.CitizenEntity> entityOpt =
                 CitizenService.spawnCitizen(level, spawnPos, wife.cityId(), true);
         if (entityOpt.isEmpty()) return;
 
-        CitizenData child = CitizenManager.get(level).getOrCreate(entityOpt.get());
+        var childEntity = entityOpt.get();
+        CitizenData child = manager.getOrCreate(childEntity);
         if (child == null) return;
 
         String childGender = random.nextDouble() < 0.5D ? "male" : "female";
@@ -79,6 +82,7 @@ public final class NpcChildbirthService {
         child.setOriginFamilyId(family.familyId());
         child.setCityId(wife.cityId());
         CitizenProfileGenerator.fillChildProfile(child, random, currentDay);
+        manager.syncEntity(childEntity);
 
         familyManager.addChild(level, family.familyId(), child.uuid());
         manager.saveCitizenNow(child.uuid());
@@ -89,6 +93,10 @@ public final class NpcChildbirthService {
         wife.medical().setPostpartumUntilDay(currentDay + Math.max(0, ServerConfig.familyPostpartumRecoveryDays()));
         wife.setStatusLabel("pregnancy.postpartum");
         manager.saveCitizenNow(wife.uuid());
+        CitizenEntity wifeEntity = CitizenTeleportService.findCitizenEntity(level, wife.uuid());
+        if (wifeEntity != null) {
+            manager.syncEntity(wifeEntity);
+        }
 
         if (wife.cityId() != null) {
             CityGroupMessageService.successToCity(level, wife.cityId(),
@@ -101,7 +109,7 @@ public final class NpcChildbirthService {
         UUID medicalBedId = wife.medical().medicalBedPoiId();
         if (medicalBedId != null) {
             CityPoiData medicalBed = CityPoiManager.get(level).getPoi(medicalBedId);
-            if (medicalBed != null && medicalBed.active()
+            if (medicalBed != null && medicalBed.active() && level.isLoaded(medicalBed.pos())
                     && MedicalBedPoiService.isWhiteBedHead(level.getBlockState(medicalBed.pos()))) {
                 return medicalBed.pos();
             }
@@ -109,10 +117,11 @@ public final class NpcChildbirthService {
         UUID homeId = wife.homeId();
         if (homeId == null) return null;
         CityPoiData poi = CityPoiManager.get(level).getPoi(homeId);
-        return poi != null ? poi.pos() : null;
+        return poi != null && level.isLoaded(poi.pos()) ? poi.pos() : null;
     }
 
-    private static UUID findVacantBedInSameBuilding(ServerLevel level, CitizenData wife) {
+    /** findVacantBedInSameHousehold：在产妇所在户内兜底查找空床。 */
+    private static UUID findVacantBedInSameHousehold(ServerLevel level, CitizenData wife) {
         UUID homeId = wife.homeId();
         if (homeId == null) return null;
         CityPoiManager poiManager = CityPoiManager.get(level);
@@ -132,9 +141,8 @@ public final class NpcChildbirthService {
                 .map(CitizenData::reservedBabyBedPoiId)
                 .forEach(occupiedPoiIds::add);
 
-        for (var instance : building.poiInstances()) {
-            if (instance.poiType() != CityPoiType.RESIDENTIAL) continue;
-            CityPoiData poi = poiManager.getPoiAt(instance.worldPos());
+        for (UUID poiId : CitizenHousingService.householdOf(building, poiManager, homeId)) {
+            CityPoiData poi = poiManager.getPoi(poiId);
             if (poi == null || !poi.active()) continue;
             if (!occupiedPoiIds.contains(poi.poiId())) return poi.poiId();
         }

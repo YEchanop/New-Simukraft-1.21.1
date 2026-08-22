@@ -1,6 +1,5 @@
 package client.cn.kafei.simukraft.client.config;
 
-import client.cn.kafei.simukraft.client.ClientHUDConfig;
 import client.cn.kafei.simukraft.client.ClientHUDOverlay;
 import com.lowdragmc.lowdraglib2.gui.holder.ModularUIScreen;
 import com.lowdragmc.lowdraglib2.gui.ui.UIElement;
@@ -12,16 +11,13 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
 
 @SuppressWarnings("null")
 public final class SimuKraftClientConfigScreen {
     private static final int WINDOW_WIDTH = 280;
-    private static final int WINDOW_HEIGHT = 240;
+    private static final int WINDOW_HEIGHT = 320;
     private static final int MIN_WINDOW_WIDTH = 220;
-    private static final int MIN_WINDOW_HEIGHT = 220;
+    private static final int MIN_WINDOW_HEIGHT = 260;
     private static final int HEADER_HEIGHT = 36;
 
     private SimuKraftClientConfigScreen() {
@@ -41,20 +37,25 @@ public final class SimuKraftClientConfigScreen {
         body.addChild(SimuKraftConfigWidgets.row(
                 Component.translatable("gui.simukraft.config.client.hud_enabled"),
                 SimuKraftConfigWidgets.switchControl(ClientConfig.HUD_ENABLED.get(), ClientConfig.HUD_ENABLED::set)));
-        body.addChild(SimuKraftConfigWidgets.row(
-                Component.translatable("gui.simukraft.config.client.hud_anchor"),
-                SimuKraftConfigWidgets.selector(anchorValues(), ClientHUDConfig.getAnchor(), SimuKraftClientConfigScreen::anchorText, ClientHUDConfig::setAnchor)));
-        body.addChild(SimuKraftConfigWidgets.row(
-                Component.translatable("gui.simukraft.config.client.hud_pos_x"),
-                SimuKraftConfigWidgets.intField(ClientConfig.HUD_POS_X.get(), -4096, 4096, ClientConfig.HUD_POS_X::set)));
-        body.addChild(SimuKraftConfigWidgets.row(
-                Component.translatable("gui.simukraft.config.client.hud_pos_y"),
-                SimuKraftConfigWidgets.intField(ClientConfig.HUD_POS_Y.get(), -4096, 4096, ClientConfig.HUD_POS_Y::set)));
+        body.addChild(openHudEditorRow());
+        body.addChild(openToastEditorRow());
         body.addChild(SimuKraftConfigWidgets.row(
                 Component.translatable("gui.simukraft.config.client.path_debug_request"),
                 SimuKraftConfigWidgets.switchControl(ClientConfig.PATH_DEBUG_REQUEST_ON_TOGGLE.get(), ClientConfig.PATH_DEBUG_REQUEST_ON_TOGGLE::set)));
-        body.addChild(footer(parent));
-        window.addChild(body);
+        body.addChild(SimuKraftConfigWidgets.row(
+                Component.translatable("gui.simukraft.config.client.rts.target_simukraft_blocks"),
+                SimuKraftConfigWidgets.switchControl(ClientConfig.RTS_TARGET_SIMUKRAFT_BLOCKS.get(), ClientConfig.RTS_TARGET_SIMUKRAFT_BLOCKS::set)));
+        body.addChild(SimuKraftConfigWidgets.row(
+                Component.translatable("gui.simukraft.config.client.rts.target_vanilla_blocks"),
+                SimuKraftConfigWidgets.switchControl(ClientConfig.RTS_TARGET_VANILLA_BLOCKS.get(), ClientConfig.RTS_TARGET_VANILLA_BLOCKS::set)));
+        body.addChild(SimuKraftConfigWidgets.row(
+                Component.translatable("gui.simukraft.config.client.rts.target_other_mod_blocks"),
+                SimuKraftConfigWidgets.switchControl(ClientConfig.RTS_TARGET_OTHER_MOD_BLOCKS.get(), ClientConfig.RTS_TARGET_OTHER_MOD_BLOCKS::set)));
+        body.addChild(SimuKraftConfigWidgets.row(
+                Component.translatable("gui.simukraft.config.client.rts.move_hold_seconds"),
+                SimuKraftConfigWidgets.intField(ClientConfig.RTS_MOVE_HOLD_SECONDS.get(), 1, 10, ClientConfig.RTS_MOVE_HOLD_SECONDS::set)));
+        window.addChild(SimuKraftConfigWidgets.scroller(body));
+        window.addChild(footer(parent));
         return SimuKraftConfigWidgets.screenRoot(window);
     }
 
@@ -81,13 +82,32 @@ public final class SimuKraftClientConfigScreen {
         });
     }
 
-    private static List<ClientHUDConfig.Anchor> anchorValues() {
-        return Arrays.asList(ClientHUDConfig.Anchor.values());
+    /** openHudEditorRow: 提供单一按钮入口，打开旧版拖拽式 HUD 编辑器。 */
+    private static UIElement openHudEditorRow() {
+        return SimuKraftConfigWidgets.row(
+                Component.translatable("gui.simukraft.config.client.hud_position"),
+                SimuKraftConfigWidgets.button(Component.translatable("gui.simukraft.config.open"),
+                        () -> Minecraft.getInstance().setScreen(new HUDPositionEditorScreen(Minecraft.getInstance().screen)), true)
+                        .layout(layout -> {
+                            layout.width(96);
+                            layout.height(24);
+                            layout.flexShrink(0);
+                        }));
     }
 
-    private static Component anchorText(ClientHUDConfig.Anchor anchor) {
-        String name = anchor == null ? ClientConfig.DEFAULT_HUD_ANCHOR : anchor.name();
-        return Component.translatable("gui.simukraft.config.hud_anchor." + name.toLowerCase(Locale.ROOT));
+    /** openToastEditorRow: 打开独立通知弹窗编辑器。 */
+    private static UIElement openToastEditorRow() {
+        return SimuKraftConfigWidgets.row(
+                Component.translatable("gui.simukraft.config.client.toast_position"),
+                SimuKraftConfigWidgets.button(Component.translatable("gui.simukraft.config.open"),
+                        () -> Minecraft.getInstance().setScreen(
+                                new ToastPositionEditorScreen(Minecraft.getInstance().screen)),
+                        true)
+                        .layout(layout -> {
+                            layout.width(96);
+                            layout.height(24);
+                            layout.flexShrink(0);
+                        }));
     }
 
     /** save: 保存客户端配置并清理 HUD 缓存。 */
@@ -102,7 +122,17 @@ public final class SimuKraftClientConfigScreen {
         ClientConfig.HUD_ANCHOR.set(ClientConfig.DEFAULT_HUD_ANCHOR);
         ClientConfig.HUD_POS_X.set(ClientConfig.DEFAULT_HUD_POS_X);
         ClientConfig.HUD_POS_Y.set(ClientConfig.DEFAULT_HUD_POS_Y);
+        ClientConfig.HUD_MAX_WIDTH.set(ClientConfig.DEFAULT_HUD_MAX_WIDTH);
+        ClientConfig.TOAST_ANCHOR.set(ClientConfig.DEFAULT_TOAST_ANCHOR);
+        ClientConfig.TOAST_POS_X.set(ClientConfig.DEFAULT_TOAST_POS_X);
+        ClientConfig.TOAST_POS_Y.set(ClientConfig.DEFAULT_TOAST_POS_Y);
+        ClientConfig.TOAST_WIDTH.set(ClientConfig.DEFAULT_TOAST_WIDTH);
+        ClientConfig.TOAST_HEIGHT.set(ClientConfig.DEFAULT_TOAST_HEIGHT);
         ClientConfig.PATH_DEBUG_REQUEST_ON_TOGGLE.set(true);
+        ClientConfig.RTS_TARGET_SIMUKRAFT_BLOCKS.set(true);
+        ClientConfig.RTS_TARGET_VANILLA_BLOCKS.set(true);
+        ClientConfig.RTS_TARGET_OTHER_MOD_BLOCKS.set(true);
+        ClientConfig.RTS_MOVE_HOLD_SECONDS.set(ClientConfig.DEFAULT_RTS_MOVE_HOLD_SECONDS);
         save();
         Minecraft.getInstance().setScreen(create(parent));
     }

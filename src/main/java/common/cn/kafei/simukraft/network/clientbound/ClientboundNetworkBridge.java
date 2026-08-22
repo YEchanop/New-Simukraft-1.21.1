@@ -13,6 +13,7 @@ import common.cn.kafei.simukraft.network.commercial.CommercialControlBoxOpenResp
 import common.cn.kafei.simukraft.network.commercial.CommercialTradeOpenResponsePacket;
 import common.cn.kafei.simukraft.network.farmland.FarmlandBoxBoundsResponsePacket;
 import common.cn.kafei.simukraft.network.farmland.FarmlandBoxOpenResponsePacket;
+import common.cn.kafei.simukraft.network.geology.GeologicalSurveyHintPacket;
 import common.cn.kafei.simukraft.network.hud.HudSyncPacket;
 import common.cn.kafei.simukraft.network.industrial.IndustrialControlBoxOpenResponsePacket;
 import common.cn.kafei.simukraft.network.industrial.IndustrialControlBoxViewUpdatePacket;
@@ -25,6 +26,7 @@ import common.cn.kafei.simukraft.network.npc.state.EmploymentStateResponsePacket
 import common.cn.kafei.simukraft.network.path.NpcPathDebugSyncPacket;
 import common.cn.kafei.simukraft.network.planner.PlannerMaterialScanResponsePacket;
 import common.cn.kafei.simukraft.network.toast.InfoToastPacket;
+import common.cn.kafei.simukraft.network.rts.RtsBuildingBoundsSyncPacket;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
@@ -171,5 +173,15 @@ public final class ClientboundNetworkBridge {
     /** handleInfoToast: 分发客户端提示消息。 */
     public static void handleInfoToast(InfoToastPacket packet) {
         HANDLER.get().handleInfoToast(packet);
+    }
+
+    /** handleGeologicalSurveyHint: 转发地质锤准星提示。 */
+    public static void handleGeologicalSurveyHint(GeologicalSurveyHintPacket packet) {
+        HANDLER.get().handleGeologicalSurveyHint(packet);
+    }
+
+    /** handleRtsBuildingBoundsSync: 分发 RTS 建筑边界同步。 */
+    public static void handleRtsBuildingBoundsSync(RtsBuildingBoundsSyncPacket packet) {
+        HANDLER.get().handleRtsBuildingBoundsSync(packet);
     }
 }

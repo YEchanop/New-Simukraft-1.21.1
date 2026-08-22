@@ -1,5 +1,6 @@
 package common.cn.kafei.simukraft.building;
 
+import common.cn.kafei.simukraft.city.CityRuntimeService;
 import common.cn.kafei.simukraft.storage.SimuSqliteStorage;
 import net.minecraft.server.level.ServerLevel;
 
@@ -55,6 +56,8 @@ public final class BuildingAbandonmentService {
 
         for (var building : buildings) {
             if (building.cityId() == null) continue;
+            // 城市休眠时跳过废弃度更新
+            if (!CityRuntimeService.isCityActive(level, building.cityId())) continue;
             String k = key(level, building.buildingId());
             int[] entry = CACHE.getOrDefault(k, new int[]{ 0, 0 });
             long lastDay = entry[1];
@@ -68,6 +71,13 @@ public final class BuildingAbandonmentService {
             CACHE.put(k, new int[]{ cur, (int) currentDay });
             SimuSqliteStorage.saveBuildingAbandonment(level, building.buildingId(), building.cityId(), cur, currentDay);
         }
+    }
+
+    /** forget: 建筑被拆除后清掉它的废弃度（内存与数据库）。 */
+    public static void forget(ServerLevel level, UUID buildingId) {
+        if (level == null || buildingId == null) return;
+        CACHE.remove(key(level, buildingId));
+        SimuSqliteStorage.deleteBuildingAbandonment(level, buildingId);
     }
 
     public static void clearCache(net.minecraft.server.MinecraftServer server) {

@@ -3,7 +3,6 @@ package common.cn.kafei.simukraft.citizen;
 import common.cn.kafei.simukraft.entity.CitizenEntity;
 import common.cn.kafei.simukraft.job.CityJobType;
 import common.cn.kafei.simukraft.registry.ModEntities;
-import common.cn.kafei.simukraft.storage.SimuSqliteStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
@@ -153,8 +152,9 @@ public final class CitizenService {
                 data.setStatusLabel("");
                 data.setWorkNeedDetail("");
             }
+            // saveCitizenNow 已经把整行（含已清空的职业字段）upsert 进库，
+            // 再补一条局部 UPDATE 只会和队列里的整行写入抢顺序。
             manager.saveCitizenNow(citizenId);
-            SimuSqliteStorage.clearCitizenEmployment(level, citizenId);
         });
     }
 
@@ -179,12 +179,10 @@ public final class CitizenService {
         if (level == null || workplaceId == null) {
             return null;
         }
-        return CitizenManager.get(level).allCitizens().stream()
-                .filter(data -> !data.dead())
-                .filter(data -> workplaceId.equals(data.workplaceId()))
-                .map(CitizenData::uuid)
-                .findFirst()
-                .orElse(null);
+        for (CitizenData data : CitizenManager.get(level).allCitizens()) {
+            if (!data.dead() && workplaceId.equals(data.workplaceId())) return data.uuid();
+        }
+        return null;
     }
 
     public static List<CitizenData> listHireableCitizens(ServerLevel level) {
@@ -237,6 +235,9 @@ public final class CitizenService {
         if (level == null || target == null || cityId == null) {
             return Optional.empty();
         }
+        if (!level.isLoaded(BlockPos.containing(target))) {
+            return Optional.empty();
+        }
         if (!ignoreHousingCapacity && !canAddCitizen(level, cityId)) {
             return Optional.empty();
         }
@@ -246,6 +247,9 @@ public final class CitizenService {
         }
         entity.moveTo(target.x, target.y, target.z, level.random.nextFloat() * 360.0F, 0.0F);
         entity.setPersistenceRequired();
+        if (!level.addFreshEntity(entity)) {
+            return Optional.empty();
+        }
         CitizenData data = ensureCitizen(level, entity);
         if (data != null) {
             data.setCityId(cityId);
@@ -255,7 +259,6 @@ public final class CitizenService {
             manager.syncEntity(entity);
             manager.markChanged();
         }
-        level.addFreshEntity(entity);
         return Optional.of(entity);
     }
 }

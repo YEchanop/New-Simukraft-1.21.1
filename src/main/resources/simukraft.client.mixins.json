@@ -2,12 +2,21 @@
   "required": true,
   "package": "client.cn.kafei.simukraft.mixin",
   "compatibilityLevel": "JAVA_21",
+  "refmap": "simukraft.refmap.json",
   "client": [
     "MixinCamera",
     "MixinEntity",
+    "MixinFrustum",
+    "MixinGameRenderer",
+    "MixinGameRendererProjection",
     "MixinKeyboardHandler",
+    "MixinLevelRenderer",
     "MixinLdlibTextField",
     "MixinMouseHandler",
+    "MixinSectionOcclusionGraph",
+    "sodium.MixinSodiumDefaultChunkRenderer",
+    "sodium.MixinSodiumRenderSectionManager",
+    "sodium.MixinSodiumViewport",
     "xaero.MixinWorldMapSession"
   ],
   "injectors": {

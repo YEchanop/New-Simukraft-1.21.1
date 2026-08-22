@@ -3,6 +3,7 @@ package common.cn.kafei.simukraft.citizen;
 import common.cn.kafei.simukraft.SimuKraft;
 import common.cn.kafei.simukraft.entity.CitizenEntity;
 import common.cn.kafei.simukraft.job.CitizenEmploymentService;
+import common.cn.kafei.simukraft.config.ServerConfig;
 import common.cn.kafei.simukraft.storage.SimuSqliteStorage;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -19,15 +20,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @SuppressWarnings("null")
 public final class CitizenManager extends SavedData {
     private static final String DATA_NAME = SimuKraft.MOD_ID + "_citizens";
     private static final String INVENTORY_BACKUPS_TAG = "CitizenInventories";
-    private static final ExecutorService IO_EXECUTOR = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "simukraft-citizen-io"); t.setDaemon(true); return t; });
     private static final int AI_BUDGET_PER_TICK = 20;
     private static final int SAVE_DIRTY_INTERVAL_TICKS = 100;
     // CITIZEN_STATUS_UPDATE_INTERVAL_TICKS：居民状态轮询间隔，用 UUID 错峰执行。
@@ -41,13 +39,14 @@ public final class CitizenManager extends SavedData {
     // 居民主数据在服务端内存中维护，SQLite 负责档案持久化，饱食度独立保存在实体 NBT。
     private final ConcurrentMap<UUID, CitizenData> citizens = new ConcurrentHashMap<>();
     private final ConcurrentMap<UUID, CompoundTag> inventoryBackups = new ConcurrentHashMap<>();
-    private final Set<UUID> pendingSaves = ConcurrentHashMap.newKeySet();
     // 分帧处理居民状态，避免城市人口变大后单 tick 扫全量。
     private final ConcurrentLinkedQueue<UUID> aiQueue = new ConcurrentLinkedQueue<>();
     private final Set<UUID> queuedAiCitizenIds = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<UUID, Long> lastHungerDecayTick = new ConcurrentHashMap<>();
     private final AtomicInteger dirtyCounter = new AtomicInteger();
     private volatile boolean sqliteLoaded;
+    // sqliteLoadFailed：加载失败一次后不再重试，避免每 tick 重跑失败查询。
+    private volatile boolean sqliteLoadFailed;
     private volatile ServerLevel level;
     private long lastFamilyTickDay = -1L;
 
@@ -121,17 +120,24 @@ public final class CitizenManager extends SavedData {
         aiQueue.clear();
         queuedAiCitizenIds.clear();
         sqliteLoaded = false;
+        sqliteLoadFailed = false;
         loadFromSqlite(storageLevel(level));
     }
 
     private synchronized void loadFromSqlite(ServerLevel level) {
-        if (sqliteLoaded) {
+        if (sqliteLoaded || sqliteLoadFailed) {
             return;
         }
         sqliteLoaded = true;
         CompoundTag sqliteTag = SimuSqliteStorage.loadCitizens(level);
         if (sqliteTag == null) {
-            SimuKraft.LOGGER.warn("Simukraft: Citizen SQLite data was not loaded; delaying entity-to-citizen fallback to avoid overwriting jobs.");
+            /*
+             * 这里刻意不置 sqliteLoaded：它同时是 getOrCreate 的安全闸，
+             * 置位后实体会被当成"新居民"建档并覆盖库里的真实档案。
+             * 但必须记下失败，否则 get(level) 每 tick 都会重跑一次失败查询并刷一条 warn。
+             */
+            sqliteLoadFailed = true;
+            SimuKraft.LOGGER.warn("Simukraft: Citizen SQLite data was not loaded; entity-to-citizen fallback stays disabled this session to avoid overwriting jobs.");
             return;
         }
         sqliteLoaded = true;
@@ -242,13 +248,12 @@ public final class CitizenManager extends SavedData {
         return tag;
     }
 
+    // 写入合并与排序由 SimuSqliteStorage 的写队列负责：同一居民的后续快照覆盖未落库的旧快照，
+    // 且 upsert 与 delete 走同一条队列，不会出现"先删后写"导致居民复活。
     private void saveCitizenIncremental(CitizenData data) {
         ServerLevel targetLevel = level;
         if (targetLevel == null || data == null) return;
-        UUID id = data.uuid();
-        if (!pendingSaves.add(id)) return;
-        CompoundTag snap = data.toTag();
-        IO_EXECUTOR.execute(() -> { try { SimuSqliteStorage.saveCitizen(targetLevel, snap); } finally { pendingSaves.remove(id); } });
+        SimuSqliteStorage.saveCitizen(targetLevel, data.toTag());
     }
 
     private void deleteCitizenIncremental(UUID uuid) {
@@ -291,6 +296,7 @@ public final class CitizenManager extends SavedData {
         if (entity.level() instanceof ServerLevel level) {
             CitizenProfileGenerator.fillMissingProfile(data, level.random, level.getDayTime() / 24000L);
         }
+        recordEntityChunk(data, entity);
         syncEntityFromData(entity, data);
         return data;
     }
@@ -367,6 +373,11 @@ public final class CitizenManager extends SavedData {
             CitizenData data = citizens.get(uuid);
             if (data != null && !data.dead()) {
                 tickCitizenData(level, data);
+                // 城市活跃时主动强加载离线居民实体
+                if (common.cn.kafei.simukraft.city.CityRuntimeService.isCitizenActive(level, data)
+                        && common.cn.kafei.simukraft.citizen.CitizenTeleportService.findCitizenEntity(level, data.uuid()) == null) {
+                    common.cn.kafei.simukraft.city.CityRuntimeService.requestCitizenRecovery(level, data);
+                }
                 enqueueAiTick(uuid);
                 processed++;
             }
@@ -400,7 +411,8 @@ public final class CitizenManager extends SavedData {
         if (currentDay % 1 == 0) {
             var familyManager = common.cn.kafei.simukraft.citizen.family.FamilyManager.get(level);
             for (var family : familyManager.allFamilies()) {
-                if (family.status() == common.cn.kafei.simukraft.citizen.family.FamilyStatus.ACTIVE) {
+                if (family.status() == common.cn.kafei.simukraft.citizen.family.FamilyStatus.ACTIVE
+                        && common.cn.kafei.simukraft.city.CityRuntimeService.isCityActive(level, family.cityId())) {
                     common.cn.kafei.simukraft.citizen.FamilyRelocationService.tryRelocate(level, family);
                 }
             }
@@ -422,6 +434,17 @@ public final class CitizenManager extends SavedData {
             data.setHappiness(45.0D + level.random.nextDouble() * 20.0D);
         }
         return data;
+    }
+
+    /** recordEntityChunk：仅在居民跨区块时持久化恢复定位信息。 */
+    private void recordEntityChunk(CitizenData data, CitizenEntity entity) {
+        if (data == null || entity == null || !(entity.level() instanceof ServerLevel)) {
+            return;
+        }
+        if (data.updateLastKnownChunk(entity.chunkPosition())) {
+            saveCitizenIncremental(data);
+            markDirtySoon();
+        }
     }
 
     private void tickCitizenData(ServerLevel level, CitizenData data) {
@@ -487,6 +510,12 @@ public final class CitizenManager extends SavedData {
         entity.setHealth((float) data.health());
         entity.setSick(data.sick());
         entity.setChildNpc(data.child());
+        long currentDay = entity.level() instanceof ServerLevel serverLevel
+                ? serverLevel.getDayTime() / 24000L : data.pregnantSince();
+        PregnancyStage pregnancyStage = data.pregnant()
+                ? PregnancyStage.resolve(currentDay - data.pregnantSince(), ServerConfig.familyPregnancyDurationDays())
+                : PregnancyStage.NONE;
+        entity.setPregnancyStage(pregnancyStage.name().toLowerCase(java.util.Locale.ROOT));
         if (entity.level() instanceof ServerLevel level) {
             CitizenJobVisualService.sync(level, entity, data);
         }

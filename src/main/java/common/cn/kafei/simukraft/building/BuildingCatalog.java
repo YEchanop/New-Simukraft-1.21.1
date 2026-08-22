@@ -17,10 +17,12 @@ public final class BuildingCatalog {
             return Optional.empty();
         }
         String normalizedName = stripExtension(buildingFileName);
-        Optional<BuildingDefinition> byMetaFile = listBuildings(category).stream()
-                .filter(candidate -> stripExtension(candidate.metaFileName()).equalsIgnoreCase(normalizedName))
-                .findFirst();
-        return byMetaFile.isPresent() ? byMetaFile : findBuildingByStructureFile(category, buildingFileName);
+        for (BuildingDefinition candidate : listBuildings(category)) {
+            if (stripExtension(candidate.metaFileName()).equalsIgnoreCase(normalizedName)) {
+                return Optional.of(candidate);
+            }
+        }
+        return findBuildingByStructureFile(category, buildingFileName);
     }
 
     /** findBuildingByStructureFile: 通过结构文件名恢复旧任务和已放置建筑。 */
@@ -29,9 +31,12 @@ public final class BuildingCatalog {
             return Optional.empty();
         }
         String normalizedName = stripExtension(structureFileName);
-        return listBuildings(category).stream()
-                .filter(candidate -> stripExtension(candidate.structureFileName()).equalsIgnoreCase(normalizedName))
-                .findFirst();
+        for (var candidate : listBuildings(category)) {
+            if (stripExtension(candidate.structureFileName()).equalsIgnoreCase(normalizedName)) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
     }
 
     public static List<BuildingDefinition> listBuildings(String category) {
@@ -69,9 +74,16 @@ public final class BuildingCatalog {
                                      String amount,
                                      String author,
                                      String description,
+                                     int unlockLevel,
                                      String metaFileName,
                                      String structureFileName,
+                                     BuildingType buildingType,
                                      BuildingPackageCatalog.PackageSource source) {
+        /** isDrillingPlatform: 判断建筑包是否将当前工业建筑声明为矿物钻井平台。 */
+        public boolean isDrillingPlatform() {
+            return buildingType == BuildingType.DRILLING_PLATFORM;
+        }
+
         public Optional<InputStream> openMeta() throws IOException {
             return openFile(metaFileName);
         }
@@ -108,5 +120,11 @@ public final class BuildingCatalog {
             Path path = packagePath();
             return path == null ? "" : path.toString().toLowerCase(Locale.ROOT);
         }
+    }
+
+    /** BuildingType: 区分普通建筑与需要矿物钻井控制箱驱动的钻井平台。 */
+    public enum BuildingType {
+        STANDARD,
+        DRILLING_PLATFORM
     }
 }

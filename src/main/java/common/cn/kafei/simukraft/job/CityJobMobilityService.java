@@ -1,14 +1,19 @@
 package common.cn.kafei.simukraft.job;
 
 import common.cn.kafei.simukraft.SimuKraft;
+import common.cn.kafei.simukraft.citizen.CitizenData;
 import common.cn.kafei.simukraft.citizen.CitizenSelfFeedingService;
+import common.cn.kafei.simukraft.citizen.CitizenService;
 import common.cn.kafei.simukraft.citizen.CitizenTeleportService;
 import common.cn.kafei.simukraft.citizen.CitizenWorkStatus;
 import common.cn.kafei.simukraft.citizen.CitizenWorkplaceMoveService;
+import common.cn.kafei.simukraft.city.CityRuntimeService;
 import common.cn.kafei.simukraft.entity.CitizenEntity;
 import common.cn.kafei.simukraft.config.ServerConfig;
+import common.cn.kafei.simukraft.medical.MedicalService;
 import common.cn.kafei.simukraft.path.CitizenNavigationService;
 import common.cn.kafei.simukraft.path.MovementIntent;
+import common.cn.kafei.simukraft.mineraldrilling.MineralDrillingConstants;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.phys.Vec3;
@@ -21,6 +26,7 @@ public final class CityJobMobilityService {
     private CityJobMobilityService() {
     }
 
+    /** resolveHireRole: 将雇佣界面岗位标识映射为统一职业枚举。 */
     public static CityJobType resolveHireRole(String role) {
         if (role == null || role.isBlank()) {
             return CityJobType.OTHER;
@@ -32,7 +38,7 @@ public final class CityJobMobilityService {
             case "guard" -> CityJobType.GUARD;
             case "gatherer" -> CityJobType.GATHERER;
             case "commercial_worker", "commercial" -> CityJobType.COMMERCIAL_WORKER;
-            case "industrial_worker", "industrial" -> CityJobType.INDUSTRIAL_WORKER;
+            case "industrial_worker", "industrial", MineralDrillingConstants.HIRE_ROLE -> CityJobType.INDUSTRIAL_WORKER;
             case "logistics_worker", "logistics" -> CityJobType.LOGISTICS_WORKER;
             case "storage_worker", "storage" -> CityJobType.STORAGE_WORKER;
             case "doctor" -> CityJobType.DOCTOR;
@@ -45,9 +51,15 @@ public final class CityJobMobilityService {
         if (level == null || citizenId == null || workplacePos == null) {
             return;
         }
+        CitizenData citizenData = CitizenService.findCitizen(level, citizenId).orElse(null);
+        if (MedicalService.isOnMedicalLeave(citizenData, level.getDayTime() / 24_000L)) {
+            return;
+        }
         CitizenEntity citizenEntity = findCitizenEntity(level, citizenId);
         if (citizenEntity == null) {
-            SimuKraft.LOGGER.warn("Simukraft: sendToWorkplace - citizen {} entity not found, workplace {}", citizenId, workplacePos);
+            CitizenService.findCitizen(level, citizenId)
+                    .ifPresent(citizen -> CityRuntimeService.requestCitizenRecovery(level, citizen));
+            SimuKraft.LOGGER.debug("Simukraft: sendToWorkplace - queued recovery for citizen {} at workplace {}", citizenId, workplacePos);
             return;
         }
         Vec3 target = (jobType == CityJobType.COMMERCIAL_WORKER

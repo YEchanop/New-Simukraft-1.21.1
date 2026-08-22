@@ -12,6 +12,8 @@ import common.cn.kafei.simukraft.citizen.CitizenTeleportService;
 import common.cn.kafei.simukraft.citizen.PopulationGrowthService;
 import common.cn.kafei.simukraft.city.CityChunkManager;
 import common.cn.kafei.simukraft.city.CityManager;
+import common.cn.kafei.simukraft.city.CityRuntimeService;
+import common.cn.kafei.simukraft.city.CityUpgradeService;
 import common.cn.kafei.simukraft.city.CityPermissionInviteService;
 import common.cn.kafei.simukraft.city.poi.CityPoiManager;
 import common.cn.kafei.simukraft.building.BuildingCatalog;
@@ -41,6 +43,9 @@ import common.cn.kafei.simukraft.industrial.IndustrialWorkService;
 import common.cn.kafei.simukraft.logistics.LogisticsAutoClientService;
 import common.cn.kafei.simukraft.logistics.LogisticsManager;
 import common.cn.kafei.simukraft.logistics.LogisticsWorkService;
+import common.cn.kafei.simukraft.mineraldrilling.MineralDrillingBoxManager;
+import common.cn.kafei.simukraft.mineraldrilling.MineralDrillingDefinitionLoader;
+import common.cn.kafei.simukraft.mineraldrilling.MineralDrillingWorkService;
 import common.cn.kafei.simukraft.planner.PlannerWorkService;
 import common.cn.kafei.simukraft.event.CityPlacementRestrictionHandler;
 import common.cn.kafei.simukraft.network.ModNetwork;
@@ -51,6 +56,7 @@ import common.cn.kafei.simukraft.material.WorkMaterialPolicy;
 import common.cn.kafei.simukraft.path.CitizenNavigationService;
 import common.cn.kafei.simukraft.protection.NpcBlockProtectionPolicy;
 import common.cn.kafei.simukraft.path.CitizenWanderService;
+import common.cn.kafei.simukraft.util.NpcWorkChunkLoadService;
 import common.cn.kafei.simukraft.registry.ModBlocks;
 import common.cn.kafei.simukraft.registry.ModCreativeModeTabs;
 import common.cn.kafei.simukraft.registry.ModEntities;
@@ -62,7 +68,11 @@ import common.cn.kafei.simukraft.registry.ModMenuTypes;
 import common.cn.kafei.simukraft.registry.ModRecipeSerializers;
 import common.cn.kafei.simukraft.registry.ModSoundEvents;
 import common.cn.kafei.simukraft.event.PlayerWelcomeService;
+import common.cn.kafei.simukraft.network.rts.RtsRemoteMenuAccess;
+import common.cn.kafei.simukraft.network.rts.RtsRemoteCitizenAccess;
+import common.cn.kafei.simukraft.network.rts.RtsChunkViewService;
 import common.cn.kafei.simukraft.storage.SimuSqliteStorage;
+import common.cn.kafei.simukraft.virtualvein.VirtualVeinService;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -72,7 +82,9 @@ import net.neoforged.neoforge.event.level.ExplosionEvent;
 import net.neoforged.neoforge.event.level.PistonEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.fml.ModContainer;
@@ -108,6 +120,7 @@ public final class SimuKraft {
         NeoForge.EVENT_BUS.register(CityPlacementRestrictionHandler.class);
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
         NeoForge.EVENT_BUS.addListener(this::onPlayerLoggedIn);
+        NeoForge.EVENT_BUS.addListener(this::onPlayerLoggedOut);
         NeoForge.EVENT_BUS.addListener(this::onLivingDeath);
         NeoForge.EVENT_BUS.addListener(this::onBlockBreak);
         NeoForge.EVENT_BUS.addListener(this::onBlockPlace);
@@ -116,9 +129,11 @@ public final class SimuKraft {
         NeoForge.EVENT_BUS.addListener(this::onPistonPost);
         NeoForge.EVENT_BUS.addListener(this::onExplosionDetonate);
         NeoForge.EVENT_BUS.addListener(this::onFarmlandTrample);
+        NeoForge.EVENT_BUS.addListener(this::onServerAboutToStart);
         NeoForge.EVENT_BUS.addListener(this::onServerStarted);
         NeoForge.EVENT_BUS.addListener(this::onServerTick);
         NeoForge.EVENT_BUS.addListener(this::onServerStopping);
+        NeoForge.EVENT_BUS.addListener(this::onServerStopped);
         NeoForge.EVENT_BUS.addListener(this::onPlayerInteractBed);
         LOGGER.info("\nWelcome to\n========================================================================\n███████╗██╗███╗   ███╗██╗   ██╗██╗  ██╗██████╗  █████╗ ███████╗████████╗\n██╔════╝██║████╗ ████║██║   ██║██║ ██╔╝██╔══██╗██╔══██╗██╔════╝╚══██╔══╝\n███████╗██║██╔████╔██║██║   ██║█████╔╝ ██████╔╝███████║█████╗     ██║   \n╚════██║██║██║╚██╔╝██║██║   ██║██╔═██╗ ██╔══██╗██╔══██║██╔══╝     ██║   \n███████║██║██║ ╚═╝ ██║╚██████╔╝██║  ██╗██║  ██║██║  ██║██║        ██║   \n╚══════╝╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝        ╚═╝  \n========================================================================\n");
     }
@@ -146,6 +161,15 @@ public final class SimuKraft {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
             PlayerWelcomeService.handleLogin(player);
             CityChunkSyncService.syncToPlayer(player);
+        }
+    }
+
+    /** onPlayerLoggedOut: 清理 RTS 远程菜单会话。 */
+    private void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+            RtsRemoteMenuAccess.clear(player);
+            RtsRemoteCitizenAccess.clear(player);
+            RtsChunkViewService.clear(player);
         }
     }
 
@@ -198,6 +222,11 @@ public final class SimuKraft {
         }
     }
 
+    /** onServerAboutToStart: 在任何 tick 之前打开存储并建表，把建库失败暴露在启动阶段。 */
+    private void onServerAboutToStart(ServerAboutToStartEvent event) {
+        SimuSqliteStorage.bootstrap(event.getServer());
+    }
+
     /** onServerStarted: 服务端启动后立即准备官方建筑包目录。 */
     private void onServerStarted(ServerStartedEvent event) {
         BuildingPackageCatalog.ensurePrepared();
@@ -228,6 +257,9 @@ public final class SimuKraft {
     }
 
     private void onServerTick(ServerTickEvent.Post event) {
+        // 先刷新城市运行状态，保证本 tick 的居民和医疗调度使用最新的激活结果。
+        event.getServer().getAllLevels().forEach(CityRuntimeService::tick);
+        event.getServer().getAllLevels().forEach(CityUpgradeService::tick);
         // CitizenManager 数据挂主世界，tick 只需对 overworld 执行一次，避免 N-1 次无效调用。
         ServerLevel overworld = event.getServer().overworld();
         CitizenManager.get(overworld).tick(overworld);
@@ -242,6 +274,7 @@ public final class SimuKraft {
             BuilderConstructionService.tick(level);
             PlannerWorkService.tick(level);
             IndustrialWorkService.tick(level);
+            MineralDrillingWorkService.tick(level);
             CommercialWorkService.tick(level);
             LogisticsWorkService.tick(level);
             PopulationGrowthService.tick(level);
@@ -262,13 +295,21 @@ public final class SimuKraft {
             saveDimensionSqlite(level);
         });
         saveGlobalSqlite(event.getServer());
+        /*
+         * 关键顺序：全量保存和各服务的 flush 只是把写入排进队列，必须在清理缓存之前把队列排空。
+         * 旧实现依赖 daemon 线程，关服时队列里未执行的写入会被直接丢弃（重进存档数据回退的主因）。
+         */
+        SimuSqliteStorage.flush(event.getServer());
         BuilderConstructionService.clearServerCaches(event.getServer());
         PlannerWorkService.clearServerCaches(event.getServer());
+        NpcWorkChunkLoadService.clearServerCaches(event.getServer());
         IndustrialWorkService.clearServerCaches(event.getServer());
+        MineralDrillingWorkService.clearServerCaches(event.getServer());
         CommercialWorkService.clearServerCaches(event.getServer());
         LogisticsWorkService.clearServerCaches(event.getServer());
         LogisticsAutoClientService.clearServerCaches(event.getServer());
         FarmlandFarmingService.clearServerCaches(event.getServer());
+        CityRuntimeService.clearServerCaches(event.getServer());
         PlacedBuildingService.clearServerCaches(event.getServer());
         ResidentialBedPoiService.clearServerCaches(event.getServer());
         MedicalBedPoiService.clearServerCaches(event.getServer());
@@ -285,13 +326,23 @@ public final class SimuKraft {
         HudSyncService.clearServerCaches(event.getServer());
         CommercialDefinitionLoader.clearCache();
         IndustrialDefinitionLoader.clearCache();
+        MineralDrillingDefinitionLoader.clearCache();
         BuildingCatalog.clearCache();
         WorkMaterialPolicy.clearCache();
         NpcBlockProtectionPolicy.clearCache();
         PlayerWelcomeService.clearServerCaches(event.getServer());
-        SimuSqliteStorage.clearServerCache(event.getServer());
+        RtsChunkViewService.clearServer(event.getServer());
+        // shutdown 会再排空一次队列、checkpoint WAL 并关闭连接，之后该服务器实例不会被残留任务重新注册。
+        SimuSqliteStorage.shutdown(event.getServer());
+        VirtualVeinService.clearServerCache(event.getServer());
         CityPoiManager.clearGlobalCache();
         common.cn.kafei.simukraft.util.SaveScopedCacheKey.clearServerCache(event.getServer());
+    }
+
+    /** onServerStopped: 服务器实例彻底退出后释放存储层对它的引用。 */
+    private void onServerStopped(ServerStoppedEvent event) {
+        SimuSqliteStorage.forgetServer(event.getServer());
+        common.cn.kafei.simukraft.storage.BuildingStructureSqliteDatabase.forgetServer(event.getServer());
     }
 
     private void saveDimensionSqlite(ServerLevel level) {
@@ -300,6 +351,7 @@ public final class SimuKraft {
         CityPoiManager.get(level).saveToSqlite(level);
         FarmlandBoxManager.get(level).saveToSqlite(level);
         IndustrialBoxManager.get(level).saveToSqlite(level);
+        MineralDrillingBoxManager.get(level).saveToSqlite(level);
         CommercialBoxManager.get(level).saveToSqlite(level);
         CommercialStockManager.get(level).saveToSqlite(level);
         LogisticsManager.get(level).saveToSqlite(level);

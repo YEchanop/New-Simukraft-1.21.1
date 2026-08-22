@@ -280,7 +280,23 @@ class HybridPathfinderRegressionTest {
         // Destination-level corners (1,65,0) and (0,65,1) are intentionally absent (solid).
         PathCase result = scene.path(0, 64, 0, 1, 65, 1);
         assertSuccess(result);
+        assertTrue(result.result().waypoints().stream()
+                        .anyMatch(waypoint -> waypoint.mode() == MovementMode.SWIM_EXIT),
+                "water exit must use the dedicated SWIM_EXIT action");
         assertNoDiagonalVerticalTransitions(result);
+    }
+
+    /** 陆地一格台阶仍使用普通 JUMP，不得被上岸动作替换。 */
+    @Test
+    void landStepRemainsRegularJump() {
+        Scene scene = new Scene();
+        scene.floor(0, 64, 0).floor(1, 65, 0);
+
+        PathCase result = scene.path(0, 64, 0, 1, 65, 0);
+
+        assertSuccess(result);
+        assertEquals(MovementMode.JUMP, lastWaypoint(result).mode(),
+                "陆地台阶必须保持 JUMP 动作");
     }
 
     /**
@@ -376,7 +392,21 @@ class HybridPathfinderRegressionTest {
         assertNoDiagonalClimbElevation(result);
         assertTrue(result.result().waypoints().stream()
                         .anyMatch(waypoint -> waypoint.mode() == MovementMode.CLIMB && waypoint.blockPos().getY() >= 65),
-                "citizen never mounted the raised ladder rung");
+                        "citizen never mounted the raised ladder rung");
+    }
+
+    /** A raised ladder cell with a solid floor below must be entered by jumping onto that floor. */
+    @Test
+    void supportedRaisedLadderTargetUsesJumpEntry() {
+        Scene scene = new Scene();
+        scene.floor(0, 64, 0).supportedClimb(1, 65, 0);
+
+        PathCase result = scene.path(0, 64, 0, 1, 65, 0);
+
+        assertSuccess(result);
+        assertEquals(MovementMode.JUMP, lastWaypoint(result).mode(),
+                "被梯子占用的高位目标格必须先跳上其下方方块");
+        assertEquals(new BlockPos(1, 65, 0), lastWaypoint(result).blockPos());
     }
 
     /**
@@ -426,7 +456,7 @@ class HybridPathfinderRegressionTest {
         List<PathWaypoint> waypoints = pathCase.result().waypoints();
         for (int index = 1; index < waypoints.size(); index++) {
             MovementMode mode = waypoints.get(index).mode();
-            if (mode != MovementMode.JUMP && mode != MovementMode.FALL) {
+            if (mode != MovementMode.JUMP && mode != MovementMode.SWIM_EXIT && mode != MovementMode.FALL) {
                 continue;
             }
             BlockPos from = waypoints.get(index - 1).blockPos();
@@ -507,7 +537,8 @@ class HybridPathfinderRegressionTest {
     }
 
     private static boolean isActionMode(MovementMode mode) {
-        return mode == MovementMode.JUMP || mode == MovementMode.SWIM || mode == MovementMode.CLIMB || mode == MovementMode.FALL;
+        return mode == MovementMode.JUMP || mode == MovementMode.SWIM || mode == MovementMode.SWIM_EXIT
+                || mode == MovementMode.CLIMB || mode == MovementMode.FALL;
     }
 
     private static void assertNoActionMode(PathCase pathCase) {
@@ -549,12 +580,24 @@ class HybridPathfinderRegressionTest {
             return cell(x, y, z, y, false, true, false, 2.0D);
         }
 
+        /** supportedClimb: 创建下方带可落脚支撑面的梯子格，用于高位入梯回归测试。 */
+        private Scene supportedClimb(int x, int y, int z) {
+            return cell(x, y, z, y, false, true, false, true, 2.0D);
+        }
+
         private Scene woodenDoor(int x, int y, int z) {
             return cell(x, y, z, y, false, false, true, 3.2D);
         }
 
         private Scene cell(int x, int y, int z, double standY, boolean water, boolean climbable, boolean woodenDoor, double cost) {
-            cells.put(PathCell.key(x, y, z), new PathCell(new BlockPos(x, y, z), x, y, z, standY, water, climbable, woodenDoor, cost));
+            return cell(x, y, z, standY, water, climbable, woodenDoor, !water && !climbable, cost);
+        }
+
+        /** cell: 写入带明确支撑面标记的路径单元，并同步登记实体可通过空间。 */
+        private Scene cell(int x, int y, int z, double standY, boolean water, boolean climbable,
+                           boolean woodenDoor, boolean floorSupported, double cost) {
+            cells.put(PathCell.key(x, y, z), new PathCell(new BlockPos(x, y, z), x, y, z, standY,
+                    water, climbable, woodenDoor, floorSupported, cost));
             passage(x, y, z);
             return this;
         }

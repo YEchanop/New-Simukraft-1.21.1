@@ -6,7 +6,6 @@ import common.cn.kafei.simukraft.citizen.family.FamilyData;
 import common.cn.kafei.simukraft.city.group.CityGroupMessageService;
 import common.cn.kafei.simukraft.city.poi.CityPoiManager;
 import net.minecraft.network.chat.Component;
-import common.cn.kafei.simukraft.city.poi.CityPoiType;
 import net.minecraft.server.level.ServerLevel;
 
 import java.util.*;
@@ -28,6 +27,9 @@ public final class FamilyRelocationService {
 
         int expectedBeds = expectedBedCount(citizenManager, family);
         Set<UUID> occupiedPoiIds = buildOccupiedSet(citizenManager);
+        // 排除该家庭自身占用：评分应反映"搬走后"的空余状态，
+        // 否则当前建筑因自住导致空房率虚低，与空建筑分差巨大，造成乒乓搬迁。
+        occupiedPoiIds.removeAll(getFamilyHomeIds(citizenManager, family));
 
         // 找当前家庭的建筑
         PlacedBuildingRecord currentBuilding = findCurrentBuilding(level, family, citizenManager, poiManager);
@@ -37,23 +39,29 @@ public final class FamilyRelocationService {
 
         // 遍历同城建筑，找倾向分更高且空余足够的目标
         PlacedBuildingRecord bestBuilding = null;
+        List<UUID> bestHousehold = List.of();
         double bestScore = forceNew ? -1.0 : currentScore;
 
         for (PlacedBuildingRecord building : PlacedBuildingService.getBuildings(level)) {
             if (!family.cityId().equals(building.cityId())) continue;
             if (building.equals(currentBuilding)) continue;
-            int vacant = HabitationIndexCalculator.countVacantResidential(building, poiManager, occupiedPoiIds);
-            if (vacant < expectedBeds) continue;
             double score = HabitationIndexCalculator.preferenceScore(level, building, poiManager, occupiedPoiIds, expectedBeds);
-            if (score > bestScore) {
-                bestScore = score;
-                bestBuilding = building;
+            for (List<UUID> household : CitizenHousingService.householdResidentialPoiGroups(building, poiManager)) {
+                long vacantBeds = household.stream().filter(poiId -> !occupiedPoiIds.contains(poiId)).count();
+                if (vacantBeds < expectedBeds) {
+                    continue;
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestBuilding = building;
+                    bestHousehold = household;
+                }
             }
         }
 
-        if (bestBuilding == null) return false;
+        if (bestBuilding == null || bestHousehold.isEmpty()) return false;
 
-        relocateFamily(level, citizenManager, poiManager, family, bestBuilding, occupiedPoiIds, expectedBeds);
+        relocateFamily(level, citizenManager, family, bestBuilding, bestHousehold, occupiedPoiIds);
         return true;
     }
 
@@ -67,10 +75,8 @@ public final class FamilyRelocationService {
                 && manager.getCitizen(family.wifeId()).map(c -> !c.dead()).orElse(false);
         int adults = (hasHusband ? 1 : 0) + (hasWife ? 1 : 0);
 
-        if (adults <= 1 && children == 0) return 1;         // 单身
-        if (children == 0) return 4;                        // 已婚无子女，预期 4
-        if (children == 1) return 4;                        // 1个孩子，预期 4
-        return adults + children + 1;                       // 2+个孩子：实际人数+1
+        if (adults <= 1 && children == 0) return 1;
+        return adults + children + 1;
     }
 
     private static Set<UUID> buildOccupiedSet(CitizenManager manager) {
@@ -78,6 +84,22 @@ public final class FamilyRelocationService {
                 .filter(c -> !c.dead() && c.homeId() != null)
                 .map(CitizenData::homeId)
                 .collect(Collectors.toSet());
+    }
+
+    /** getFamilyHomeIds：收集家庭所有在世成员当前的 homeId，用于从占用集合中排除。 */
+    private static Set<UUID> getFamilyHomeIds(CitizenManager manager, FamilyData family) {
+        Set<UUID> ids = new HashSet<>();
+        List<UUID> memberIds = new ArrayList<>();
+        if (family.husbandId() != null) memberIds.add(family.husbandId());
+        if (family.wifeId() != null) memberIds.add(family.wifeId());
+        memberIds.addAll(family.childIds());
+        for (UUID memberId : memberIds) {
+            manager.getCitizen(memberId)
+                    .filter(c -> !c.dead() && c.homeId() != null)
+                    .map(CitizenData::homeId)
+                    .ifPresent(ids::add);
+        }
+        return ids;
     }
 
     private static PlacedBuildingRecord findCurrentBuilding(ServerLevel level, FamilyData family,
@@ -90,24 +112,22 @@ public final class FamilyRelocationService {
         var poi = poiManager.getPoi(member.homeId());
         if (poi == null) return null;
         // 按 POI 的 pos 找所属建筑
-        return PlacedBuildingService.getBuildings(level).stream()
-                .filter(b -> family.cityId().equals(b.cityId()))
-                .filter(b -> b.poiInstances().stream()
-                        .anyMatch(inst -> poi.pos().equals(inst.worldPos())))
-                .findFirst().orElse(null);
+        for (PlacedBuildingRecord building : PlacedBuildingService.getBuildings(level)) {
+            if (family.cityId().equals(building.cityId())) {
+                for (var inst : building.poiInstances()) {
+                    if (poi.pos().equals(inst.worldPos())) return building;
+                }
+            }
+        }
+        return null;
     }
 
     private static void relocateFamily(ServerLevel level, CitizenManager manager,
-            CityPoiManager poiManager, FamilyData family,
-            PlacedBuildingRecord targetBuilding, Set<UUID> occupiedPoiIds, int neededBeds) {
-        // 收集目标建筑的空余 RESIDENTIAL POI
-        List<UUID> vacantPoiIds = new ArrayList<>();
-        for (var instance : targetBuilding.poiInstances()) {
-            if (instance.poiType() != CityPoiType.RESIDENTIAL) continue;
-            var poi = poiManager.getPoiAt(instance.worldPos());
-            if (poi == null || !poi.active()) continue;
-            if (!occupiedPoiIds.contains(poi.poiId())) vacantPoiIds.add(poi.poiId());
-        }
+            FamilyData family,
+            PlacedBuildingRecord targetBuilding, List<UUID> targetHousehold, Set<UUID> occupiedPoiIds) {
+        List<UUID> vacantPoiIds = targetHousehold.stream()
+                .filter(poiId -> !occupiedPoiIds.contains(poiId))
+                .toList();
 
         // 家庭成员列表（排除已死亡）
         List<UUID> members = new ArrayList<>();

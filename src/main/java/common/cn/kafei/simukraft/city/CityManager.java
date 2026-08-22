@@ -83,10 +83,9 @@ public final class CityManager extends SavedData {
         }
         sqliteLoaded = true;
         CompoundTag sqliteTag = SimuSqliteStorage.loadCities(level);
-        if (sqliteTag == null) {
-            return;
-        }
-        if (sqliteTag.isEmpty()) {
+        // 加载失败（null）也要置位：旧实现会在每次 get(level)（即每 tick）重跑一次失败查询。
+        // 失败后的写入保护由存储层的降级开关负责，这里保留内存/SavedData 状态即可。
+        if (sqliteTag == null || sqliteTag.isEmpty()) {
             return;
         }
         CityManager loaded = load(sqliteTag, level.registryAccess());
@@ -369,6 +368,18 @@ public final class CityManager extends SavedData {
             return false;
         }
         city.addFinanceTransaction(transaction, maxRecords);
+        saveCityIncremental(city);
+        setDirty();
+        return true;
+    }
+
+    /** persistUpgrade: 单次持久化升级后的等级、资金和财政流水。 */
+    synchronized boolean persistUpgrade(CityData city) {
+        ServerLevel targetLevel = level;
+        if (city == null || cities.get(city.cityId()) != city || targetLevel == null
+                || SimuSqliteStorage.isDegraded(targetLevel)) {
+            return false;
+        }
         saveCityIncremental(city);
         setDirty();
         return true;

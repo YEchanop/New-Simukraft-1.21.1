@@ -1,6 +1,7 @@
 package common.cn.kafei.simukraft.citizen;
 
 import common.cn.kafei.simukraft.citizen.family.FamilyManager;
+import common.cn.kafei.simukraft.city.CityRuntimeService;
 import common.cn.kafei.simukraft.entity.CitizenEntity;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
@@ -20,6 +21,8 @@ public final class NpcGrowthService {
 
         for (CitizenData data : manager.allCitizens()) {
             if (data.dead()) continue;
+            // 城市休眠时跳过年龄增长
+            if (!CityRuntimeService.isCityActive(level, data.cityId())) continue;
             long lastGrowthDay = data.lastAgeGrowthDay();
             if (lastGrowthDay < 0L || currentDay < lastGrowthDay) {
                 data.setLastAgeGrowthDay(currentDay);
@@ -95,6 +98,9 @@ public final class NpcGrowthService {
             common.cn.kafei.simukraft.storage.SimuSqliteStorage.saveFamily(level, newFamily);
         }
 
+        if (CitizenHousingService.hasFullyVacantHousehold(level, cityId)) {
+            CitizenService.setHome(level, data.uuid(), null);
+        }
         manager.saveCitizenNow(data.uuid());
         CitizenHousingService.fillVacantHomes(level, cityId, 1);
     }
