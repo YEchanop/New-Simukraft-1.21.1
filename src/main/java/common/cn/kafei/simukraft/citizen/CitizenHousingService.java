@@ -290,7 +290,6 @@ public final class CitizenHousingService {
         return List.copyOf(households);
     }
 
-    @SuppressWarnings("unused")
     private static boolean isActiveResidentialPoi(CityPoiManager poiManager, UUID poiId) {
         CityPoiData poi = poiManager.getPoi(poiId);
         return poi != null && poi.active() && poi.type() == CityPoiType.RESIDENTIAL;

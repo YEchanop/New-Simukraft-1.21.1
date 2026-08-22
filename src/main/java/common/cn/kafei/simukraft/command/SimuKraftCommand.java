@@ -156,8 +156,6 @@ public final class SimuKraftCommand {
                                                         context.getSource(),
                                                         DoubleArgumentType.getDouble(context, "amount"),
                                                         EntityArgument.getPlayer(context, "player")))))))
-                .then(Commands.literal("leave")
-                        .executes(context -> leaveCity(context.getSource())))
                 .then(Commands.literal("delete")
                         .requires(source -> source.hasPermission(2))
                         .then(Commands.argument("cityName", StringArgumentType.string())
@@ -1011,34 +1009,6 @@ public final class SimuKraftCommand {
                 HudSyncService.syncToPlayer(player, true);
             }
         }
-    }
-
-    private static int leaveCity(CommandSourceStack source) {
-        ServerPlayer player = source.getPlayer();
-        if (player == null) {
-            source.sendFailure(Component.translatable("message.simukraft.path_debug.player_required"));
-            return 0;
-        }
-        ServerLevel level = player.serverLevel();
-        Optional<CityData> cityOpt = CityService.findPlayerCity(level, player.getUUID());
-        if (cityOpt.isEmpty()) {
-            source.sendFailure(Component.translatable("message.simukraft.command.city_leave.no_city"));
-            return 0;
-        }
-        CityData city = cityOpt.get();
-        UUID playerId = player.getUUID();
-        if (city.hasPermission(playerId, CityPermissionLevel.MAYOR)) {
-            source.sendFailure(Component.translatable("message.simukraft.command.city_leave.is_mayor"));
-            return 0;
-        }
-        boolean ok = CityService.removePlayer(level, city.cityId(), playerId, playerId);
-        if (!ok) {
-            source.sendFailure(Component.translatable("message.simukraft.command.city_leave.failed"));
-            return 0;
-        }
-        HudSyncService.syncToPlayer(player, true);
-        source.sendSuccess(() -> Component.translatable("message.simukraft.command.city_leave.success", city.cityName()), true);
-        return Command.SINGLE_SUCCESS;
     }
 
     private static int deleteCityByName(CommandSourceStack source, String cityName) {
