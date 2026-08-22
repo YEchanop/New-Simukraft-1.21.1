@@ -23,14 +23,10 @@ import common.cn.kafei.simukraft.city.CityManager;
 import common.cn.kafei.simukraft.city.CityPermissionInviteService;
 import common.cn.kafei.simukraft.city.CityPermissionLevel;
 import common.cn.kafei.simukraft.city.CityService;
-import common.cn.kafei.simukraft.city.group.CityGroupMessageService;
-import common.cn.kafei.simukraft.city.group.CityUserGroup;
-import common.cn.kafei.simukraft.city.group.CityUserGroupService;
 import common.cn.kafei.simukraft.city.poi.CityPoiData;
 import common.cn.kafei.simukraft.city.poi.CityPoiManager;
 import common.cn.kafei.simukraft.city.poi.CityPoiService;
 import common.cn.kafei.simukraft.city.poi.CityPoiType;
-import common.cn.kafei.simukraft.network.city.chunk.CityChunkSyncService;
 import common.cn.kafei.simukraft.commercial.CommercialBoxManager;
 import common.cn.kafei.simukraft.commercial.CommercialDefinitionLoader;
 import common.cn.kafei.simukraft.commercial.CommercialStockManager;
@@ -156,12 +152,6 @@ public final class SimuKraftCommand {
                                                         context.getSource(),
                                                         DoubleArgumentType.getDouble(context, "amount"),
                                                         EntityArgument.getPlayer(context, "player")))))))
-                .then(Commands.literal("delete")
-                        .requires(source -> source.hasPermission(2))
-                        .then(Commands.argument("cityName", StringArgumentType.string())
-                                .executes(context -> deleteCityByName(
-                                        context.getSource(),
-                                        StringArgumentType.getString(context, "cityName")))))
 );
         root.then(Commands.literal("path")
                 .requires(source -> source.hasPermission(2))
@@ -1011,28 +1001,4 @@ public final class SimuKraftCommand {
         }
     }
 
-    private static int deleteCityByName(CommandSourceStack source, String cityName) {
-        ServerLevel level = source.getServer().overworld();
-        Optional<CityData> cityOpt = CityService.findCityByName(level, cityName);
-        if (cityOpt.isEmpty()) {
-            source.sendFailure(Component.translatable("message.simukraft.command.city_delete.city_not_found", cityName));
-            return 0;
-        }
-        CityData city = cityOpt.get();
-        List<ServerPlayer> onlineMembers = CityUserGroupService.onlinePlayers(level, CityUserGroup.members(city.cityId()));
-        UUID operatorId = source.getPlayer() != null ? source.getPlayer().getUUID() : new UUID(0, 0);
-        boolean ok = CityService.deleteCity(level, city.cityId(), operatorId, CityChunkManager.get(level), CityPoiManager.get(level));
-        if (!ok) {
-            source.sendFailure(Component.translatable("message.simukraft.command.city_delete.failed"));
-            return 0;
-        }
-        CityGroupMessageService.sendResolved(onlineMembers,
-                Component.translatable("message.simukraft.command.city_delete.success", city.cityName()),
-                Component.translatable("message.simukraft.command.city_delete.success", city.cityName()),
-                "info", null);
-        HudSyncService.syncResolvedGroup(onlineMembers, true);
-        CityChunkSyncService.syncToAll(level);
-        source.sendSuccess(() -> Component.translatable("message.simukraft.command.city_delete.success", city.cityName()), true);
-        return Command.SINGLE_SUCCESS;
-    }
 }

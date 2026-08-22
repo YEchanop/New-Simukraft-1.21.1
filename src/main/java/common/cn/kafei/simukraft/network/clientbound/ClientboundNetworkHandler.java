@@ -7,6 +7,7 @@ import common.cn.kafei.simukraft.network.building.controlbox.ResidentialControlB
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageResponsePacket;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkSyncPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpenResponsePacket;
+import common.cn.kafei.simukraft.network.city.core.CityCoreOpCityListResponsePacket;
 import common.cn.kafei.simukraft.network.city.map.CityCoreMapResponsePacket;
 import common.cn.kafei.simukraft.network.city.member.CityCoreMembersResponsePacket;
 import common.cn.kafei.simukraft.network.commercial.CommercialControlBoxOpenResponsePacket;
@@ -61,6 +62,10 @@ public interface ClientboundNetworkHandler {
 
     /** handleCityCoreMapResponse: 处理城市地图响应。 */
     default void handleCityCoreMapResponse(CityCoreMapResponsePacket packet) {
+    }
+
+    /** handleCityCoreOpCityListResponse: 处理 OP 城市列表响应。 */
+    default void handleCityCoreOpCityListResponse(CityCoreOpCityListResponsePacket packet) {
     }
 
     /** handleCityCoreMembersResponse: 处理城市成员界面响应。 */

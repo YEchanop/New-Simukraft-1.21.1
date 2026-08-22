@@ -34,6 +34,13 @@ public final class CityService {
         return CityManager.get(level).deleteCity(cityId, operatorId, chunkManager, poiManager);
     }
 
+    public static boolean deleteCityAsOperator(ServerLevel level, UUID cityId, CityChunkManager chunkManager, CityPoiManager poiManager) {
+        if (level == null || cityId == null) {
+            return false;
+        }
+        return CityManager.get(level).deleteCityByOperator(cityId, chunkManager, poiManager);
+    }
+
     public static Optional<CityData> findCity(ServerLevel level, UUID cityId) {
         if (level == null || cityId == null) {
             return Optional.empty();

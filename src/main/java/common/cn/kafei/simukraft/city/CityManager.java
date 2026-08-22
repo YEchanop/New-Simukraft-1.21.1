@@ -214,6 +214,18 @@ public final class CityManager extends SavedData {
         if (city == null || !city.hasPermission(operatorId, CityPermissionLevel.MAYOR)) {
             return false;
         }
+        return deleteCityInternal(city, cityId, chunkManager, poiManager);
+    }
+
+    public boolean deleteCityByOperator(UUID cityId, CityChunkManager chunkManager, CityPoiManager poiManager) {
+        CityData city = cities.get(cityId);
+        if (city == null) {
+            return false;
+        }
+        return deleteCityInternal(city, cityId, chunkManager, poiManager);
+    }
+
+    private boolean deleteCityInternal(CityData city, UUID cityId, CityChunkManager chunkManager, CityPoiManager poiManager) {
         cities.remove(cityId);
         corePosIndex.remove(coreKey(city.dimensionId(), city.cityCorePos()));
         city.members().forEach(member -> playerCityIndex.remove(member.playerId(), cityId));

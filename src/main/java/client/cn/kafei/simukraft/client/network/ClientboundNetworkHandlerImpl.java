@@ -29,6 +29,7 @@ import common.cn.kafei.simukraft.network.building.controlbox.ResidentialControlB
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageResponsePacket;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkSyncPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpenResponsePacket;
+import common.cn.kafei.simukraft.network.city.core.CityCoreOpCityListResponsePacket;
 import common.cn.kafei.simukraft.network.city.map.CityCoreMapResponsePacket;
 import common.cn.kafei.simukraft.network.city.member.CityCoreMembersResponsePacket;
 import common.cn.kafei.simukraft.network.clientbound.ClientboundNetworkHandler;
@@ -131,6 +132,11 @@ public final class ClientboundNetworkHandlerImpl implements ClientboundNetworkHa
     @Override
     public void handleCityCoreMembersResponse(CityCoreMembersResponsePacket packet) {
         CityCoreScreenOpener.openMembers(packet);
+    }
+
+    @Override
+    public void handleCityCoreOpCityListResponse(CityCoreOpCityListResponsePacket packet) {
+        CityCoreScreenOpener.openOpCityList(packet);
     }
 
     @Override

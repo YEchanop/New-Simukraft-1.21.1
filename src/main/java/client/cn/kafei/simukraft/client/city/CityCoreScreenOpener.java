@@ -23,6 +23,8 @@ import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageRespons
 import common.cn.kafei.simukraft.network.city.member.CityCoreMemberActionPacket;
 import common.cn.kafei.simukraft.network.city.member.CityCoreMembersRequestPacket;
 import common.cn.kafei.simukraft.network.city.member.CityCoreMembersResponsePacket;
+import common.cn.kafei.simukraft.network.city.core.CityCoreOpCityListRequestPacket;
+import common.cn.kafei.simukraft.network.city.core.CityCoreOpCityListResponsePacket;
 
 import com.lowdragmc.lowdraglib2.editor.ui.View;
 import com.lowdragmc.lowdraglib2.editor.ui.ViewContainer;
@@ -122,6 +124,17 @@ public final class CityCoreScreenOpener {
             return expectation;
         }
         return null;
+    }
+
+    public static void openOpCityList(CityCoreOpCityListResponsePacket packet) {
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.execute(() -> {
+            CityCoreWindow window = activeWindow;
+            if (!isActiveScreen(minecraft, window)) {
+                return;
+            }
+            window.openOpCityList(packet);
+        });
     }
 
     public static void openMembers(CityCoreMembersResponsePacket packet) {
@@ -269,6 +282,11 @@ public final class CityCoreScreenOpener {
         if (!packet.hasCity()) {
             menu.addChild(menuButton("screen.simukraft.city_core.create", () -> window.openTab("create", "screen.simukraft.city_core.create", createPanel(packet))));
         } else if (packet.canManageCity()) {
+            if (Minecraft.getInstance().player != null && Minecraft.getInstance().player.hasPermissions(2)) {
+                menu.addChild(menuButton("screen.simukraft.city_core.menu.op_cities", () -> {
+                    PacketDistributor.sendToServer(new CityCoreOpCityListRequestPacket(CityCoreOpCityListRequestPacket.Action.LIST, null));
+                }));
+            }
             menu.addChild(menuButton("screen.simukraft.city_core.menu.info", () -> window.openTab("info", "screen.simukraft.city_core.menu.info", scrollable(contentPanel(packet)))));
             menu.addChild(menuButton("screen.simukraft.city_core.map_title", () -> requestMap(packet)));
             menu.addChild(menuButton("screen.simukraft.city_core.menu.edit", () -> window.openTab("edit", "screen.simukraft.city_core.menu.edit", editPanel(packet))));
@@ -791,6 +809,46 @@ public final class CityCoreScreenOpener {
         return Component.translatable("permission.simukraft." + permissionLevel.name().toLowerCase(Locale.ROOT)).getString();
     }
 
+    private static final Set<UUID> pendingOpCityDeletes = ConcurrentHashMap.newKeySet();
+
+    private static UIElement opCityPanel(CityCoreOpCityListResponsePacket response) {
+        UIElement panel = basePanel();
+        panel.addChild(line(Component.translatable("screen.simukraft.city_core.op_cities.title")));
+        if (response.message() != null && !response.message().isBlank()) {
+            Component message = response.message().startsWith("message.")
+                    ? Component.translatable(response.message())
+                    : Component.literal(response.message());
+            panel.addChild(line(message));
+        }
+        if (response.cities().isEmpty()) {
+            panel.addChild(line(Component.translatable("screen.simukraft.city_core.op_cities.empty")));
+        } else {
+            for (CityCoreOpCityListResponsePacket.Entry city : response.cities()) {
+                panel.addChild(line(Component.translatable(
+                        "screen.simukraft.city_core.op_cities.row",
+                        city.cityName(), city.mayorName(), city.memberCount(), city.dimensionId(),
+                        city.corePos().getX(), city.corePos().getY(), city.corePos().getZ())));
+                boolean confirming = pendingOpCityDeletes.contains(city.cityId());
+                panel.addChild(contentButton(
+                        confirming ? "screen.simukraft.city_core.op_cities.delete_confirm" : "screen.simukraft.city_core.op_cities.delete",
+                        () -> {
+                            if (pendingOpCityDeletes.add(city.cityId())) {
+                                PacketDistributor.sendToServer(new CityCoreOpCityListRequestPacket(
+                                        CityCoreOpCityListRequestPacket.Action.DELETE, city.cityId()));
+                            } else {
+                                PacketDistributor.sendToServer(new CityCoreOpCityListRequestPacket(
+                                        CityCoreOpCityListRequestPacket.Action.DELETE, city.cityId()));
+                            }
+                        }));
+                panel.addChild(contentSpacer());
+            }
+        }
+        if (response.deleted()) {
+            pendingOpCityDeletes.clear();
+        }
+        return scrollable(panel);
+    }
+
     private static UIElement contentPanel(CityCoreOpenResponsePacket packet) {
         UIElement panel = basePanel();
         if (!packet.hasCity()) {
@@ -1056,6 +1114,10 @@ public final class CityCoreScreenOpener {
         private void toggleSidebar() {
             sidebarCollapsed = !sidebarCollapsed;
             rebuildSidebar();
+        }
+
+        private void openOpCityList(CityCoreOpCityListResponsePacket response) {
+            openTab("op_cities_" + WINDOW_SEQUENCE.incrementAndGet(), "screen.simukraft.city_core.menu.op_cities", CityCoreScreenOpener.opCityPanel(response));
         }
 
         private void openDefaultTabs() {

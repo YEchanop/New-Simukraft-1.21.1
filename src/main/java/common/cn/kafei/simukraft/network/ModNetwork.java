@@ -21,6 +21,8 @@ import common.cn.kafei.simukraft.network.city.chunk.CityChunkPurchasePacket;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkSyncPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreCreateCityPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreManageCityPacket;
+import common.cn.kafei.simukraft.network.city.core.CityCoreOpCityListRequestPacket;
+import common.cn.kafei.simukraft.network.city.core.CityCoreOpCityListResponsePacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpenRequestPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpenResponsePacket;
 import common.cn.kafei.simukraft.network.city.core.CityUpgradeRequestPacket;
@@ -100,6 +102,7 @@ public final class ModNetwork {
         registrar.playToServer(CityCoreOpenRequestPacket.TYPE, CityCoreOpenRequestPacket.STREAM_CODEC, CityCoreOpenRequestPacket::handle);
         registrar.playToServer(CityCoreCreateCityPacket.TYPE, CityCoreCreateCityPacket.STREAM_CODEC, CityCoreCreateCityPacket::handle);
         registrar.playToServer(CityCoreManageCityPacket.TYPE, CityCoreManageCityPacket.STREAM_CODEC, CityCoreManageCityPacket::handle);
+        registrar.playToServer(CityCoreOpCityListRequestPacket.TYPE, CityCoreOpCityListRequestPacket.STREAM_CODEC, CityCoreOpCityListRequestPacket::handle);
         registrar.playToServer(CityUpgradeRequestPacket.TYPE, CityUpgradeRequestPacket.STREAM_CODEC, CityUpgradeRequestPacket::handle);
         registrar.playToServer(CityCoreMembersRequestPacket.TYPE, CityCoreMembersRequestPacket.STREAM_CODEC, CityCoreMembersRequestPacket::handle);
         registrar.playToServer(CityCoreMemberActionPacket.TYPE, CityCoreMemberActionPacket.STREAM_CODEC, CityCoreMemberActionPacket::handle);
@@ -154,6 +157,7 @@ public final class ModNetwork {
         registrar.playToServer(ManifestTogglePacket.TYPE, ManifestTogglePacket.STREAM_CODEC, ManifestTogglePacket::handle);
         registrar.playToServer(ServerConfigSavePacket.TYPE, ServerConfigSavePacket.STREAM_CODEC, ServerConfigSavePacket::handle);
         registrar.playToClient(CityCoreOpenResponsePacket.TYPE, CityCoreOpenResponsePacket.STREAM_CODEC, CityCoreOpenResponsePacket::handle);
+        registrar.playToClient(CityCoreOpCityListResponsePacket.TYPE, CityCoreOpCityListResponsePacket.STREAM_CODEC, CityCoreOpCityListResponsePacket::handle);
         registrar.playToClient(CityCoreMembersResponsePacket.TYPE, CityCoreMembersResponsePacket.STREAM_CODEC, CityCoreMembersResponsePacket::handle);
         registrar.playToClient(CityCitizenManageResponsePacket.TYPE, CityCitizenManageResponsePacket.STREAM_CODEC, CityCitizenManageResponsePacket::handle);
         registrar.playToClient(CityCoreMapResponsePacket.TYPE, CityCoreMapResponsePacket.STREAM_CODEC, CityCoreMapResponsePacket::handle);
