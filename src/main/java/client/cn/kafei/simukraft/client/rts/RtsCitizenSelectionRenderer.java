@@ -19,6 +19,7 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
 
 /** RTS 市民选择渲染器：绘制已选市民脚底框与本次移动目标线。 */
+@SuppressWarnings("null")
 @OnlyIn(Dist.CLIENT)
 public final class RtsCitizenSelectionRenderer {
     private static final int COLOR_SELECTION = 0xEE22DDFF;

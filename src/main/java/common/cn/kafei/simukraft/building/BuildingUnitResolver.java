@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 /** BuildingUnitResolver：按建筑元数据和世界坐标确定住宅户的床位归属。 */
+@SuppressWarnings("null")
 public final class BuildingUnitResolver {
     private BuildingUnitResolver() {
     }

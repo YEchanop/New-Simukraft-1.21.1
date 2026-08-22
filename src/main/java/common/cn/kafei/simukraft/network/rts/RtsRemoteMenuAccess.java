@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /** RTS 远程菜单会话：仅维持当前双击目标，放行其对应的原版容器距离校验。 */
+@SuppressWarnings("null")
 public final class RtsRemoteMenuAccess {
     private static final int NO_MENU = -1;
     private static final ConcurrentMap<UUID, RemoteTarget> TARGETS = new ConcurrentHashMap<>();

@@ -95,7 +95,6 @@ public final class MedicalDefinitionLoader {
         }
     }
 
-    @SuppressWarnings("null")
     private static String stripExtension(String fileName) {
         int dot = fileName != null ? fileName.lastIndexOf('.') : -1;
         return dot > 0 ? fileName.substring(0, dot) : "hospital";

@@ -10,6 +10,7 @@ import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.ItemStack;
 
 /** ClientToastLayout: 计算并渲染单个通知的缩放布局。 */
+@SuppressWarnings("null")
 final class ClientToastLayout {
     private static final ResourceLocation LOGO_TEXTURE = ResourceLocation.fromNamespaceAndPath(
             SimuKraft.MOD_ID, "textures/gui/logo.png");

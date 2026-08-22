@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 
 /** RTS 市民右键菜单：提供信息、商店和移动三项操作。 */
+@SuppressWarnings("null")
 @OnlyIn(Dist.CLIENT)
 public final class RtsCitizenContextMenuScreen extends Screen {
     private static final int MENU_WIDTH = 76;

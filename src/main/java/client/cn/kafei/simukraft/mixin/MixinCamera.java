@@ -17,10 +17,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(Camera.class)
 @OnlyIn(Dist.CLIENT)
 public abstract class MixinCamera {
-    @Shadow
+    @Shadow(remap = false)
     protected abstract void setPosition(Vec3 position);
 
-    @Shadow
+    @Shadow(remap = false)
     protected abstract void setRotation(float yRot, float xRot, float roll);
 
     /** simukraft$setup: 完成原版相机初始化后覆盖为独立 RTS 相机姿态。 */

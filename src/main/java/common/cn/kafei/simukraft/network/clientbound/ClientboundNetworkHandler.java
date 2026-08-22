@@ -142,4 +142,5 @@ public interface ClientboundNetworkHandler {
     /** handleRtsBuildingBoundsSync: 更新 RTS 客户端建筑边界快照。 */
     default void handleRtsBuildingBoundsSync(RtsBuildingBoundsSyncPacket packet) {
     }
+
 }

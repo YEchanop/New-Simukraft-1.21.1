@@ -238,6 +238,7 @@
     "screen.simukraft.city_core.citizen_manage.rename_cancel":  "取消",
     "screen.simukraft.city_core.citizen_manage.search":  "按姓名搜索",
     "screen.simukraft.city_core.menu.finance":  "财政管理",
+    "screen.simukraft.city_core.menu.leave":  "退出城市",
     "screen.simukraft.city_core.map_title":  "城市地图",
     "screen.simukraft.city_core.map_placeholder":  "城市区块地图待同步。",
     "screen.simukraft.city_core.map.city":  "城市：%s",

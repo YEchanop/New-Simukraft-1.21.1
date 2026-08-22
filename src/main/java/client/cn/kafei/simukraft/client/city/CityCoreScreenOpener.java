@@ -279,6 +279,7 @@ public final class CityCoreScreenOpener {
         } else {
             menu.addChild(menuButton("screen.simukraft.city_core.menu.info", () -> window.openTab("info", "screen.simukraft.city_core.menu.info", scrollable(contentPanel(packet)))));
             menu.addChild(menuButton("screen.simukraft.city_core.map_title", () -> requestMap(packet)));
+            menu.addChild(menuButton("screen.simukraft.city_core.menu.leave", () -> PacketDistributor.sendToServer(new CityCoreManageCityPacket(packet.pos(), CityCoreManageCityPacket.Action.LEAVE, ""))));
         }
         menu.addChild(menuSpacer());
         menu.addChild(closeButton(CityCoreScreenOpener::close));

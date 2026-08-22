@@ -12,7 +12,6 @@ import net.neoforged.api.distmarker.OnlyIn;
 /** 在 LDLib 槽位上补绘原版玩家装备空槽图标。 */
 @SuppressWarnings("null")
 @OnlyIn(Dist.CLIENT)
-@SuppressWarnings("null")
 public final class CitizenEquipmentSlotIconElement extends UIElement {
     private final CitizenInventory inventory;
     private final int inventorySlot;

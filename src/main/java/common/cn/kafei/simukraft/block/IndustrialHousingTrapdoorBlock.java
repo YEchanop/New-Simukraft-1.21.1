@@ -19,6 +19,7 @@ import javax.annotation.Nonnull;
 /**
  * 黄色铁质栈道：活板门外形，仅可水平上置/下置，不可打开，不可侧置。
  */
+@SuppressWarnings("null")
 public class IndustrialHousingTrapdoorBlock extends Block {
 
     /** HALF: 贴地（BOTTOM）或贴顶（TOP） */

@@ -12,7 +12,6 @@ import net.neoforged.api.distmarker.OnlyIn;
 /** 在 LDLib 元素内绘制当前已加载的 NPC 实体模型。 */
 @SuppressWarnings("null")
 @OnlyIn(Dist.CLIENT)
-@SuppressWarnings("null")
 public final class CitizenEntityPreviewElement extends UIElement {
     private final int entityId;
 

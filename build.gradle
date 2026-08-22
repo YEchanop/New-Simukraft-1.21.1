@@ -257,10 +257,13 @@ dependencies {
     add("mixinOfficialMappings", "com.mojang:minecraft-client-mappings:${mixinOfficialMappingsSha1}@txt")
     annotationProcessor "net.fabricmc:sponge-mixin:0.15.2+mixin.0.8.7"
 
-    // NT 保护层：内测版通过 JiJ 嵌入，正式版构建时用 -Prelease 剔除
-    if (!rootProject.hasProperty('release')) {
-        implementation files(ntJar)
-        jarJar files(ntJar)
+    // NT 保护层仅在显式提供 ntJar 时嵌入；正式构建通过 -Prelease 跳过。
+    if (!rootProject.hasProperty('release') && rootProject.hasProperty('ntJar')) {
+        def ntJarFile = file(rootProject.property('ntJar'))
+        if (ntJarFile.exists()) {
+            implementation files(ntJarFile)
+            jarJar files(ntJarFile)
+        }
     }
 
     implementation "curse.maven:ldlib-626676:8152699"

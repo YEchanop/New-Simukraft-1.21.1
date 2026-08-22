@@ -11,6 +11,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /** RTS 摄像机区块视窗请求：仅在焦点跨区块或退出 RTS 时从客户端发起。 */
+@SuppressWarnings("null")
 public record RtsChunkViewPacket(boolean active, int chunkX, int chunkZ) implements CustomPacketPayload {
     public static final Type<RtsChunkViewPacket> TYPE = new Type<>(
             ResourceLocation.fromNamespaceAndPath(SimuKraft.MOD_ID, "rts_chunk_view"));

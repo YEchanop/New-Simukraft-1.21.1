@@ -70,6 +70,8 @@ public record CityCoreManageCityPacket(BlockPos pos, Action action, String value
             renameCity(level, player, cityId, packet.pos(), packet.value());
         } else if (packet.action() == Action.DELETE) {
             deleteCity(level, player, cityId, packet.pos(), packet.value());
+        } else if (packet.action() == Action.LEAVE) {
+            leaveCity(level, player, cityId, packet.pos());
         }
     }
 
@@ -113,6 +115,26 @@ public record CityCoreManageCityPacket(BlockPos pos, Action action, String value
         }
     }
 
+    private static void leaveCity(ServerLevel level, ServerPlayer player, UUID cityId, BlockPos pos) {
+        CityData city = CityService.findCity(level, cityId).orElse(null);
+        if (city == null) {
+            InfoToastService.warning(player, Component.translatable("message.simukraft.command.city_leave.failed"));
+            return;
+        }
+        if (CityService.getPlayerPermission(city, player.getUUID()) == CityPermissionLevel.MAYOR) {
+            InfoToastService.warning(player, Component.translatable("message.simukraft.command.city_leave.is_mayor"));
+            return;
+        }
+        boolean left = CityService.removePlayer(level, cityId, player.getUUID(), player.getUUID());
+        if (!left) {
+            InfoToastService.warning(player, Component.translatable("message.simukraft.command.city_leave.failed"));
+            return;
+        }
+        InfoToastService.success(player, Component.translatable("message.simukraft.command.city_leave.success", city.cityName()));
+        HudSyncService.syncToPlayer(player, true);
+        CityCoreOpenRequestPacket.openFor(level, player, pos);
+    }
+
     private static String normalizeCityName(String rawCityName) {
         return rawCityName == null ? "" : rawCityName.trim();
     }
@@ -126,7 +148,8 @@ public record CityCoreManageCityPacket(BlockPos pos, Action action, String value
 
     public enum Action {
         RENAME,
-        DELETE;
+        DELETE,
+        LEAVE;
 
         public static Action fromName(String name) {
             if (name == null || name.isBlank()) {
