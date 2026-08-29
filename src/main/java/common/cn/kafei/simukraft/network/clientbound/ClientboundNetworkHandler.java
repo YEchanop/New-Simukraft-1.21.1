@@ -4,6 +4,7 @@ import common.cn.kafei.simukraft.network.building.BuildingCacheReloadPacket;
 import common.cn.kafei.simukraft.network.building.controlbox.ResidentialControlBoxBoundsUpdatePacket;
 import common.cn.kafei.simukraft.network.building.controlbox.ResidentialControlBoxOpenResponsePacket;
 import common.cn.kafei.simukraft.network.building.controlbox.ResidentialControlBoxViewUpdatePacket;
+import common.cn.kafei.simukraft.network.citizen.info.CitizenSkinTransferPacket;
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageResponsePacket;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkSyncPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpenResponsePacket;
@@ -146,6 +147,10 @@ public interface ClientboundNetworkHandler {
 
     /** handleRtsBuildingBoundsSync: 更新 RTS 客户端建筑边界快照。 */
     default void handleRtsBuildingBoundsSync(RtsBuildingBoundsSyncPacket packet) {
+    }
+
+    /** handleCitizenSkinTransfer: 注册服务端下发的市民皮肤文件。 */
+    default void handleCitizenSkinTransfer(CitizenSkinTransferPacket packet) {
     }
 
 }

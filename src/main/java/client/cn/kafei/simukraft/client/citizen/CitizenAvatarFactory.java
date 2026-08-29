@@ -23,16 +23,25 @@ public final class CitizenAvatarFactory {
     }
 
     public static UIElement createHead(String skinPath, int borderColor) {
+        return headWithTexture(createAvatarTexture(skinPath), borderColor);
+    }
+
+    /** createHead: 直接使用已知纹理位置绘制头像（用于下载中心目录缩略图）。 */
+    public static UIElement createHead(ResourceLocation textureLocation, int borderColor) {
+        return headWithTexture(avatarTexture(textureLocation), borderColor);
+    }
+
+    private static UIElement headWithTexture(IGuiTexture avatarTexture, int borderColor) {
         UIElement head = new UIElement();
         try {
             head.style(style -> style.backgroundTexture(new GuiTextureGroup(
                     new ColorRectTexture(FRAME_BACKGROUND),
                     new ColorRectTexture(FRAME_INNER).scale(0.92f),
-                    createAvatarTexture(skinPath),
+                    avatarTexture,
                     new ColorBorderTexture(1, borderColor)
             )));
         } catch (Exception exception) {
-            SimuKraft.LOGGER.error("Simukraft: Failed to create citizen avatar skinPath={} borderColor={}", skinPath, Integer.toHexString(borderColor), exception);
+            SimuKraft.LOGGER.error("Simukraft: Failed to create citizen avatar borderColor={}", Integer.toHexString(borderColor), exception);
             head.style(style -> style.backgroundTexture(new GuiTextureGroup(
                     new ColorRectTexture(FRAME_BACKGROUND),
                     new ColorBorderTexture(1, borderColor)
@@ -51,14 +60,26 @@ public final class CitizenAvatarFactory {
         }
         try {
             ResourceLocation textureLocation = resolveSkinTexture(skinPath);
-            return (graphics, mouseX, mouseY, x, y, width, height, partialTicks) -> drawAvatar(graphics, textureLocation, x, y, width, height);
+            return avatarTexture(textureLocation);
         } catch (Exception exception) {
             SimuKraft.LOGGER.error("Simukraft: Failed to create custom-draw avatar texture for skinPath={}", skinPath, exception);
             return new ColorRectTexture(0xFF8A9298).scale(0.78f);
         }
     }
 
+    /** avatarTexture: 按纹理位置绘制头像面部（不解析资源路径）。 */
+    private static IGuiTexture avatarTexture(ResourceLocation textureLocation) {
+        return (graphics, mouseX, mouseY, x, y, width, height, partialTicks) -> drawAvatar(graphics, textureLocation, x, y, width, height);
+    }
+
     private static ResourceLocation resolveSkinTexture(String skinPath) {
+        // 文件夹自定义皮肤：直接使用已注册的动态贴图资源位置。
+        if (CitizenSkinLibrary.isFolderSkinPath(skinPath)) {
+            ResourceLocation folderSkin = CitizenSkinLibrary.textureLocation(skinPath);
+            if (folderSkin != null) {
+                return folderSkin;
+            }
+        }
         String normalized = skinPath.replace('\\', '/').trim();
         if (normalized.startsWith(MOD_ID + ":")) {
             normalized = normalized.substring((MOD_ID + ":").length());

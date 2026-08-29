@@ -5,6 +5,7 @@ import client.cn.kafei.simukraft.client.buildbox.BuildBoxScreenOpener;
 import client.cn.kafei.simukraft.client.buildbox.BuildingBoundsRenderer;
 import client.cn.kafei.simukraft.client.buildbox.BuildingCacheService;
 import client.cn.kafei.simukraft.client.buildbox.PlannerMaterialSelectionScreenOpener;
+import client.cn.kafei.simukraft.client.citizen.CitizenSkinLibrary;
 import client.cn.kafei.simukraft.client.citizen.CityCitizenManageScreen;
 import client.cn.kafei.simukraft.client.city.ClientCityChunkCache;
 import client.cn.kafei.simukraft.client.city.CityCoreScreenOpener;
@@ -26,6 +27,7 @@ import common.cn.kafei.simukraft.network.building.BuildingCacheReloadPacket;
 import common.cn.kafei.simukraft.network.building.controlbox.ResidentialControlBoxBoundsUpdatePacket;
 import common.cn.kafei.simukraft.network.building.controlbox.ResidentialControlBoxOpenResponsePacket;
 import common.cn.kafei.simukraft.network.building.controlbox.ResidentialControlBoxViewUpdatePacket;
+import common.cn.kafei.simukraft.network.citizen.info.CitizenSkinTransferPacket;
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageResponsePacket;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkSyncPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpenResponsePacket;
@@ -238,5 +240,11 @@ public final class ClientboundNetworkHandlerImpl implements ClientboundNetworkHa
     @Override
     public void handleGeologicalSurveyHint(GeologicalSurveyHintPacket packet) {
         GeologicalSurveyHintOverlay.show(packet.message());
+    }
+
+    /** handleCitizenSkinTransfer: 注册服务端下发的市民皮肤文件。 */
+    @Override
+    public void handleCitizenSkinTransfer(CitizenSkinTransferPacket packet) {
+        CitizenSkinLibrary.registerFromServer(packet.name(), packet.data());
     }
 }

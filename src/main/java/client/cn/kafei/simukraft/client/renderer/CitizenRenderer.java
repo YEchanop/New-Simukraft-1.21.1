@@ -3,6 +3,7 @@ package client.cn.kafei.simukraft.client.renderer;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import com.mojang.blaze3d.vertex.PoseStack;
+import client.cn.kafei.simukraft.client.citizen.CitizenSkinLibrary;
 import common.cn.kafei.simukraft.SimuKraft;
 import common.cn.kafei.simukraft.entity.CitizenEntity;
 import net.minecraft.client.Camera;
@@ -114,6 +115,12 @@ public class CitizenRenderer extends MobRenderer<CitizenEntity, CitizenModel> {
     }
 
     private static ResourceLocation textureFromPath(String skinPath) {
+        // 文件夹自定义皮肤：文件被删或未注册时回退默认皮肤。
+        if (CitizenSkinLibrary.isFolderSkinPath(skinPath)) {
+            return CitizenSkinLibrary.hasTexture(skinPath)
+                    ? CitizenSkinLibrary.textureLocation(skinPath)
+                    : DEFAULT_TEXTURE;
+        }
         if (skinPath == null || skinPath.isBlank()) {
             return DEFAULT_TEXTURE;
         }

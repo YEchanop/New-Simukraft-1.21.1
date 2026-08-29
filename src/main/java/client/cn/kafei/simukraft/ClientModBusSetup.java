@@ -6,6 +6,7 @@ import client.cn.kafei.simukraft.client.buildbox.BuildingBoundsRenderer;
 import client.cn.kafei.simukraft.client.config.ConfigButtonHandler;
 import client.cn.kafei.simukraft.client.config.SimuKraftConfigScreen;
 import client.cn.kafei.simukraft.client.citizen.CitizenScreenOpener;
+import client.cn.kafei.simukraft.client.citizen.CitizenSkinLibrary;
 import client.cn.kafei.simukraft.client.fluid.ClientFluidExtensions;
 import client.cn.kafei.simukraft.client.input.SimuKraftKeyMappings;
 import client.cn.kafei.simukraft.client.logistics.LogisticsWarehouseGridScreen;
@@ -51,6 +52,7 @@ public final class ClientModBusSetup {
     /** onClientSetup: 安装客户端桥接实现并注册运行时渲染监听。 */
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
+        CitizenSkinLibrary.ensureScanned();
         ClientboundNetworkBridge.install(ClientboundNetworkHandlerImpl.INSTANCE);
         ClientInteractionBridge.install(ClientInteractionHandlerImpl.INSTANCE);
         CitizenInfoUiBridge.install(CitizenScreenOpener::createContainerUi);

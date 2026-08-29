@@ -5,6 +5,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.core.registries.BuiltInRegistries;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 @SuppressWarnings("null")
@@ -19,6 +21,8 @@ public final class ClientConfig {
     public static final int DEFAULT_TOAST_WIDTH = 184;
     public static final int DEFAULT_TOAST_HEIGHT = 48;
     public static final int DEFAULT_RTS_MOVE_HOLD_SECONDS = 1;
+    public static final String DEFAULT_SKIN_CATALOG_URL = "https://littleskin.cn/skinlib";
+    public static final String DEFAULT_SKIN_CATALOG_NAME = "LittleSkin";
 
     public static final ModConfigSpec SPEC;
     public static final ModConfigSpec.BooleanValue HUD_ENABLED;
@@ -36,6 +40,8 @@ public final class ClientConfig {
     public static final ModConfigSpec.BooleanValue RTS_TARGET_VANILLA_BLOCKS;
     public static final ModConfigSpec.BooleanValue RTS_TARGET_OTHER_MOD_BLOCKS;
     public static final ModConfigSpec.IntValue RTS_MOVE_HOLD_SECONDS;
+    public static final ModConfigSpec.ConfigValue<String> SKIN_CATALOG_URL;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> SKIN_CATALOG_LIST;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -107,6 +113,16 @@ public final class ClientConfig {
                 .translation("config.simukraft.client.rts.moveHoldSeconds")
                 .defineInRange("moveHoldSeconds", DEFAULT_RTS_MOVE_HOLD_SECONDS, 1, 10);
         builder.pop();
+        builder.push("citizen_skin");
+        SKIN_CATALOG_URL = builder
+                .comment("URL of the citizen skin catalog API used by the skin download center. Default points to LittleSkin skinlib (littleskin.cn). " + "Generic endpoints must return a JSON array of {\"name\": \"...\", \"url\": \"...\"} entries.")
+                .translation("config.simukraft.client.citizenSkin.catalogUrl")
+                .define("catalogUrl", DEFAULT_SKIN_CATALOG_URL);
+        SKIN_CATALOG_LIST = builder
+                .comment("Saved skin catalog APIs as \"name|url\" entries. Use the download center's API manager to add, switch and remove.")
+                .translation("config.simukraft.client.citizenSkin.catalogList")
+                .defineList("catalogList", List.of(DEFAULT_SKIN_CATALOG_NAME + "|" + DEFAULT_SKIN_CATALOG_URL), ClientConfig::isCatalogEntry);
+        builder.pop();
         SPEC = builder.build();
     }
 
@@ -157,6 +173,85 @@ public final class ClientConfig {
     /** rtsMoveHoldSeconds: 返回 RTS 长按移动所需秒数。 */
     public static int rtsMoveHoldSeconds() {
         return Math.max(1, Math.min(10, RTS_MOVE_HOLD_SECONDS.get()));
+    }
+
+    /** skinCatalogUrl: 返回皮肤下载中心目录 API 地址，未配置时为空串。 */
+    public static String skinCatalogUrl() {
+        String value = SKIN_CATALOG_URL.get();
+        return value == null ? "" : value.trim();
+    }
+
+    /** setSkinCatalogUrl: 保存皮肤目录 API 地址并写盘（下载中心自定义 API 使用）。 */
+    public static void setSkinCatalogUrl(String url) {
+        SKIN_CATALOG_URL.set(url == null ? "" : url.trim());
+        SPEC.save();
+    }
+
+    /** CatalogApi: 已保存的皮肤目录 API（展示名 + 地址）。 */
+    public record CatalogApi(String name, String url) {
+    }
+
+    /** catalogApis: 返回已保存的 API 列表（配置项按 "name|url" 存储）。 */
+    public static List<CatalogApi> catalogApis() {
+        List<CatalogApi> result = new ArrayList<>();
+        for (String entry : SKIN_CATALOG_LIST.get()) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            int separator = entry.indexOf('|');
+            if (separator < 0) {
+                result.add(new CatalogApi(entry, entry));
+            } else {
+                result.add(new CatalogApi(entry.substring(0, separator), entry.substring(separator + 1)));
+            }
+        }
+        return result;
+    }
+
+    /** addCatalogApi: 添加或更新（同地址改名）一个 API 并写盘。 */
+    public static void addCatalogApi(String name, String url) {
+        String safeUrl = url == null ? "" : url.trim();
+        String safeName = name == null || name.isBlank() ? safeUrl : name.trim();
+        List<String> entries = new ArrayList<>(SKIN_CATALOG_LIST.get());
+        String newEntry = safeName + "|" + safeUrl;
+        for (int i = 0; i < entries.size(); i++) {
+            String existing = entries.get(i);
+            String existingUrl = existing.indexOf('|') >= 0 ? existing.substring(existing.indexOf('|') + 1) : existing;
+            if (existingUrl.equals(safeUrl)) {
+                entries.set(i, newEntry);
+                SKIN_CATALOG_LIST.set(entries);
+                SPEC.save();
+                return;
+            }
+        }
+        entries.add(newEntry);
+        SKIN_CATALOG_LIST.set(entries);
+        SPEC.save();
+    }
+
+    /** removeCatalogApi: 删除指定地址的 API；若删掉的是当前使用的，自动切回第一个。 */
+    public static void removeCatalogApi(String url) {
+        String safeUrl = url == null ? "" : url.trim();
+        String activeUrl = skinCatalogUrl();
+        List<String> entries = new ArrayList<>(SKIN_CATALOG_LIST.get());
+        entries.removeIf(entry -> {
+            String existingUrl = entry.indexOf('|') >= 0 ? entry.substring(entry.indexOf('|') + 1) : entry;
+            return existingUrl.equals(safeUrl);
+        });
+        if (entries.isEmpty()) {
+            entries.add(DEFAULT_SKIN_CATALOG_NAME + "|" + DEFAULT_SKIN_CATALOG_URL);
+        }
+        SKIN_CATALOG_LIST.set(entries);
+        if (safeUrl.equals(activeUrl)) {
+            List<CatalogApi> apis = catalogApis();
+            setSkinCatalogUrl(apis.isEmpty() ? "" : apis.getFirst().url());
+        }
+        SPEC.save();
+    }
+
+    /** isCatalogEntry: 配置元素校验，条目必须形如 "name|url"。 */
+    private static boolean isCatalogEntry(Object value) {
+        return value instanceof String string && string.contains("|");
     }
 
     /** hudMaxWidth: 获取 HUD 最大行宽（0=不限制）。 */

@@ -8,6 +8,7 @@ import common.cn.kafei.simukraft.citizen.CitizenDroppedFoodService;
 import common.cn.kafei.simukraft.citizen.CitizenManager;
 import common.cn.kafei.simukraft.citizen.CitizenHomeRestService;
 import common.cn.kafei.simukraft.citizen.CitizenSelfFeedingService;
+import common.cn.kafei.simukraft.citizen.CitizenSkinFileService;
 import common.cn.kafei.simukraft.citizen.CitizenTeleportService;
 import common.cn.kafei.simukraft.citizen.PopulationGrowthService;
 import common.cn.kafei.simukraft.city.CityChunkManager;
@@ -49,6 +50,7 @@ import common.cn.kafei.simukraft.mineraldrilling.MineralDrillingWorkService;
 import common.cn.kafei.simukraft.planner.PlannerWorkService;
 import common.cn.kafei.simukraft.event.CityPlacementRestrictionHandler;
 import common.cn.kafei.simukraft.network.ModNetwork;
+import common.cn.kafei.simukraft.network.citizen.info.CitizenSkinTransferPacket;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkSyncService;
 import common.cn.kafei.simukraft.network.hud.HudSyncService;
 import common.cn.kafei.simukraft.job.CityJobAssignmentService;
@@ -83,6 +85,7 @@ import net.neoforged.neoforge.event.level.PistonEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
@@ -161,6 +164,18 @@ public final class SimuKraft {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
             PlayerWelcomeService.handleLogin(player);
             CityChunkSyncService.syncToPlayer(player);
+            sendCitizenSkinsToPlayer(player);
+        }
+    }
+
+    /** sendCitizenSkinsToPlayer: 把服务端 simukraftskins 文件夹里的皮肤文件下发给玩家。 */
+    private static void sendCitizenSkinsToPlayer(net.minecraft.server.level.ServerPlayer player) {
+        CitizenSkinFileService.scan();
+        for (String name : CitizenSkinFileService.names()) {
+            byte[] bytes = CitizenSkinFileService.bytesFor(name);
+            if (bytes != null) {
+                PacketDistributor.sendToPlayer(player, new CitizenSkinTransferPacket(name, bytes));
+            }
         }
     }
 

@@ -47,6 +47,22 @@ public final class CitizenService {
         });
     }
 
+    // setSkin：仅更新市民皮肤路径并同步实体，供市民信息界面更换皮肤调用。skinPath 空串表示恢复默认。
+    public static void setSkin(ServerLevel level, CitizenEntity entity, String skinPath) {
+        if (level == null || entity == null) {
+            return;
+        }
+        CitizenManager manager = CitizenManager.get(level);
+        manager.getCitizen(entity.getUUID()).ifPresent(data -> {
+            if (data.dead()) {
+                return;
+            }
+            data.setSkinPath(skinPath != null ? skinPath : "");
+            manager.saveCitizenNow(data.uuid());
+            manager.syncEntity(entity);
+        });
+    }
+
     public static void setCity(ServerLevel level, UUID citizenId, UUID cityId) {
         if (level == null || citizenId == null) {
             return;

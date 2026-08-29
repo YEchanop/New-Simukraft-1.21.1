@@ -9,13 +9,21 @@ import com.lowdragmc.lowdraglib2.gui.ui.data.Transform2D;
 import com.lowdragmc.lowdraglib2.gui.ui.UIElement;
 import com.lowdragmc.lowdraglib2.gui.ui.event.UIEvent;
 import com.lowdragmc.lowdraglib2.gui.ui.event.UIEvents;
+import com.lowdragmc.lowdraglib2.gui.ui.data.ScrollerMode;
+import com.lowdragmc.lowdraglib2.gui.ui.elements.Button;
+import com.lowdragmc.lowdraglib2.gui.ui.elements.Label;
+import com.lowdragmc.lowdraglib2.gui.ui.elements.ScrollerView;
+import com.lowdragmc.lowdraglib2.gui.ui.elements.TextField;
 import com.lowdragmc.lowdraglib2.gui.ui.style.PropertyRegistry;
 import com.lowdragmc.lowdraglib2.syncdata.ISubscription;
 import common.cn.kafei.simukraft.citizen.CitizenInfoSlotLayout;
 import common.cn.kafei.simukraft.citizen.CitizenInventory;
+import common.cn.kafei.simukraft.config.ClientConfig;
 import common.cn.kafei.simukraft.entity.CitizenEntity;
 import common.cn.kafei.simukraft.network.citizen.info.CitizenInfoResponsePacket;
 import common.cn.kafei.simukraft.network.citizen.info.CitizenBehaviorActionPacket;
+import common.cn.kafei.simukraft.network.citizen.info.CitizenSetSkinPacket;
+import common.cn.kafei.simukraft.network.citizen.info.CitizenSkinRequestPacket;
 import dev.vfyjxf.taffy.style.AlignContent;
 import dev.vfyjxf.taffy.style.AlignItems;
 import dev.vfyjxf.taffy.style.FlexDirection;
@@ -30,7 +38,9 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /** 参考证件卡草图实现的 NPC 信息、装备与双背包一体界面。 */
 @SuppressWarnings("null")
@@ -79,11 +89,23 @@ public final class CitizenInfoUiRoot extends UIElement {
     private final CardDrawer cardDrawer;
     private boolean followEnabled;
     private boolean stayEnabled;
+    private String currentSkinPath;
+    /** 下载中心本会话已下载的皮肤名。 */
+    private final Set<String> catalogDownloaded = new HashSet<>();
+    /** 下载中心状态行引用，用于下载结果反馈。 */
+    private UIElement catalogStatusLine;
+    /** 下载中心查询状态：页号、关键词、排序（空=最新，likes=点赞）与是否有下一页。 */
+    private int catalogPage = 1;
+    private String catalogKeyword = "";
+    private String catalogSort = "";
+    private boolean catalogHasNext;
+    private UIElement catalogPageLabel;
 
     public CitizenInfoUiRoot(CitizenInfoResponsePacket packet, CitizenInventory inventory, CitizenEntity owner) {
         this.packet = packet;
         this.followEnabled = packet.followingViewer();
         this.stayEnabled = packet.stayInPlace();
+        this.currentSkinPath = packet.skinPath();
         layout(layout -> {
             layout.widthPercent(100);
             layout.heightPercent(100);
@@ -456,7 +478,7 @@ public final class CitizenInfoUiRoot extends UIElement {
             portraitFrame.setAllowHitTest(false);
             portraitFrame.style(style -> style.zIndex(4));
             drawer.addChild(portraitFrame);
-            UIElement portrait = CitizenAvatarFactory.createHead(packet.skinPath(), CARD_HEADER);
+            UIElement portrait = CitizenAvatarFactory.createHead(currentSkinPath, CARD_HEADER);
             portrait.layout(layout -> absoluteLayout(layout, 16, 34, 36, 36));
             portrait.setAllowHitTest(false);
             portrait.style(style -> style.zIndex(5));
@@ -476,12 +498,531 @@ public final class CitizenInfoUiRoot extends UIElement {
                 lineY += 14;
             }
 
+            if ("identity".equals(id)) {
+                addSkinSection();
+            }
+
             UIElement footer = absolute(12, DRAWER_HEIGHT - 10, DRAWER_WIDTH - 24, 1);
             footer.setAllowHitTest(false);
             footer.style(style -> style.backgroundTexture(new ColorRectTexture(0x80C8A260)).zIndex(3));
             drawer.addChild(footer);
             backdrop.setDisplay(true);
             animateTo(Transform2D.identity(), 0.22F, null);
+        }
+
+        /** addSkinSection：身份证卡片底部皮肤设置区，含当前皮肤与更换/刷新入口。 */
+        private void addSkinSection() {
+            drawer.addChild(text(Component.translatable("screen.simukraft.citizen_info.skin.label"), 14, 168, 40, 12, CARD_TEXT, TextTexture.TextType.NORMAL));
+            String name = CitizenSkinLibrary.nameFromStoredPath(currentSkinPath);
+            drawer.addChild(text(Component.literal(name != null ? name : Component.translatable("screen.simukraft.citizen_info.none").getString()),
+                    52, 168, 148, 12, CARD_TEXT, TextTexture.TextType.LEFT));
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.change", 206, 166, 42, 16, this::showSkinPicker));
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.refresh", 252, 166, 36, 16, () -> {
+                CitizenSkinLibrary.reload();
+                PacketDistributor.sendToServer(new CitizenSkinRequestPacket());
+                showSkinPicker();
+            }));
+        }
+
+        /** showSkinPicker：更换皮肤子视图，列出 simukraftskins 文件夹中的皮肤。 */
+        private void showSkinPicker() {
+            drawer.clearAllChildren();
+
+            CitizenSectionPanelElement frame = new CitizenSectionPanelElement(CARD_PAPER, CARD_BORDER_OUTER, CARD_BORDER_INNER);
+            frame.layout(layout -> absoluteLayout(layout, 0, 0, DRAWER_WIDTH, DRAWER_HEIGHT));
+            frame.style(style -> style.zIndex(0));
+            drawer.addChild(frame);
+
+            UIElement header = absolute(3, 3, DRAWER_WIDTH - 6, 20);
+            header.setAllowHitTest(false);
+            header.style(style -> style.backgroundTexture(new ColorRectTexture(CARD_HEADER)).zIndex(2));
+            drawer.addChild(header);
+            drawer.addChild(text(Component.translatable("screen.simukraft.citizen_info.skin.title"), 8, 8, DRAWER_WIDTH - 16, 11, 0xFFFFFFFF, TextTexture.TextType.NORMAL));
+
+            UIElement accent = absolute(3, 23, DRAWER_WIDTH - 6, 2);
+            accent.setAllowHitTest(false);
+            accent.style(style -> style.backgroundTexture(new ColorRectTexture(CARD_ACCENT)).zIndex(3));
+            drawer.addChild(accent);
+
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.refresh", 14, 30, 60, 16, () -> {
+                CitizenSkinLibrary.reload();
+                PacketDistributor.sendToServer(new CitizenSkinRequestPacket());
+                showSkinPicker();
+            }));
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.reset", 80, 30, 70, 16, () -> applySkin("")));
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.download", 156, 30, 64, 16, this::showSkinDownloader));
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.back", 226, 30, 60, 16, () -> open("identity")));
+
+            UIElement listPanel = new UIElement().layout(layout -> {
+                layout.widthPercent(100);
+                layout.flexDirection(FlexDirection.COLUMN);
+                layout.gapAll(4);
+                layout.paddingAll(4);
+            });
+            List<String> names = CitizenSkinLibrary.listNames();
+            if (names.isEmpty()) {
+                listPanel.addChild(cardLabel(Component.translatable("screen.simukraft.citizen_info.skin.empty"), CARD_TEXT));
+            } else {
+                for (String name : names) {
+                    listPanel.addChild(skinRow(name));
+                }
+            }
+            ScrollerView scroller = new ScrollerView();
+            scroller.scrollerStyle(style -> style.mode(ScrollerMode.VERTICAL));
+            scroller.layout(layout -> absoluteLayout(layout, 8, 52, DRAWER_WIDTH - 16, DRAWER_HEIGHT - 66));
+            scroller.addScrollViewChild(listPanel);
+            drawer.addChild(scroller);
+
+            drawer.addChild(text(Component.translatable("screen.simukraft.citizen_info.skin.folder_hint",
+                    CitizenSkinLibrary.rootDirectory().toString()), 12, DRAWER_HEIGHT - 10, DRAWER_WIDTH - 24, 9, CARD_TEXT, TextTexture.TextType.NORMAL));
+
+            backdrop.setDisplay(true);
+            animateTo(Transform2D.identity(), 0.22F, null);
+        }
+
+        /** skinRow：皮肤选择列表行，点击即应用并返回身份证卡片。 */
+        private UIElement skinRow(String name) {
+            String stored = CitizenSkinLibrary.storedPath(name);
+            boolean current = name.equals(CitizenSkinLibrary.nameFromStoredPath(currentSkinPath));
+            UIElement row = new UIElement().layout(layout -> {
+                layout.widthPercent(100);
+                layout.height(24);
+                layout.flexDirection(FlexDirection.ROW);
+                layout.gapAll(6);
+                layout.alignItems(AlignItems.CENTER);
+                layout.paddingAll(3);
+            });
+            row.style(style -> style.backgroundTexture(new ColorRectTexture(current ? 0xFFE8DFC8 : 0x00000000)));
+            UIElement avatar = CitizenAvatarFactory.createHead(stored, CARD_ACCENT);
+            avatar.layout(layout -> {
+                layout.width(18);
+                layout.height(18);
+                layout.flexShrink(0);
+            });
+            avatar.setAllowHitTest(false);
+            row.addChild(avatar);
+            row.addChild(cardLabel(Component.literal(name), CARD_TEXT));
+            if (current) {
+                row.addChild(cardLabelFixed(Component.translatable("screen.simukraft.citizen_info.skin.current"), 0xFF6D4C41, 40));
+            }
+            row.addEventListener(UIEvents.MOUSE_DOWN, event -> {
+                if (event.button == 0) {
+                    applySkin(stored);
+                    event.stopPropagation();
+                }
+            });
+            return row;
+        }
+
+        /** applySkin：本地更新皮肤并发送服务端，然后返回身份证卡片。 */
+        private void applySkin(String skinPath) {
+            currentSkinPath = skinPath;
+            PacketDistributor.sendToServer(new CitizenSetSkinPacket(packet.citizenId(), skinPath));
+            open("identity");
+        }
+
+        /** showSkinDownloader：皮肤下载中心子视图，支持关键词搜索、排序与翻页。 */
+        private void showSkinDownloader() {
+            drawer.clearAllChildren();
+
+            CitizenSectionPanelElement frame = new CitizenSectionPanelElement(CARD_PAPER, CARD_BORDER_OUTER, CARD_BORDER_INNER);
+            frame.layout(layout -> absoluteLayout(layout, 0, 0, DRAWER_WIDTH, DRAWER_HEIGHT));
+            frame.style(style -> style.zIndex(0));
+            drawer.addChild(frame);
+
+            UIElement header = absolute(3, 3, DRAWER_WIDTH - 6, 20);
+            header.setAllowHitTest(false);
+            header.style(style -> style.backgroundTexture(new ColorRectTexture(CARD_HEADER)).zIndex(2));
+            drawer.addChild(header);
+            drawer.addChild(text(Component.translatable("screen.simukraft.citizen_info.skin.download_title"), 8, 8, 180, 11, 0xFFFFFFFF, TextTexture.TextType.NORMAL));
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.catalog.api", 212, 5, 76, 16, this::showCatalogApiSettings));
+
+            UIElement accent = absolute(3, 23, DRAWER_WIDTH - 6, 2);
+            accent.setAllowHitTest(false);
+            accent.style(style -> style.backgroundTexture(new ColorRectTexture(CARD_ACCENT)).zIndex(3));
+            drawer.addChild(accent);
+
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.back", 226, 30, 60, 18, this::showSkinPicker));
+
+            // 进入下载中心时清空上次会话的目录缩略图。
+            CitizenSkinLibrary.clearCatalogThumbnails();
+
+            // 关键词搜索行。
+            TextField searchField = new TextField();
+            searchField.setAnyString();
+            searchField.setText(catalogKeyword);
+            searchField.getTextFieldStyle().placeholder(Component.translatable("screen.simukraft.citizen_info.skin.catalog.search_placeholder"));
+            searchField.layout(layout -> absoluteLayout(layout, 14, 30, 150, 18));
+            searchField.style(style -> style.zIndex(10));
+            drawer.addChild(searchField);
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.catalog.search", 168, 30, 52, 18, () -> {
+                catalogKeyword = searchField.getValue() == null ? "" : searchField.getValue().trim();
+                catalogPage = 1;
+                showSkinDownloader();
+            }));
+
+            // 排序切换 + 翻页行。
+            String sortKey = "likes".equals(catalogSort)
+                    ? "screen.simukraft.citizen_info.skin.catalog.sort.show_likes"
+                    : "screen.simukraft.citizen_info.skin.catalog.sort.show_latest";
+            drawer.addChild(cardButton(sortKey, 14, 52, 64, 18, () -> {
+                catalogSort = "likes".equals(catalogSort) ? "" : "likes";
+                catalogPage = 1;
+                showSkinDownloader();
+            }));
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.catalog.prev", 88, 52, 56, 18, () -> {
+                if (catalogPage > 1) {
+                    catalogPage--;
+                    showSkinDownloader();
+                }
+            }));
+            catalogPageLabel = absolute(148, 52, 56, 18);
+            catalogPageLabel.setAllowHitTest(false);
+            catalogPageLabel.style(style -> style.zIndex(11));
+            drawer.addChild(catalogPageLabel);
+            updateCatalogPageLabel();
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.catalog.next", 208, 52, 56, 18, () -> {
+                if (catalogHasNext) {
+                    catalogPage++;
+                    showSkinDownloader();
+                }
+            }));
+
+            UIElement statusLine = absolute(14, 74, DRAWER_WIDTH - 28, 14);
+            statusLine.setAllowHitTest(false);
+            statusLine.style(style -> style.zIndex(11));
+            drawer.addChild(statusLine);
+            catalogStatusLine = statusLine;
+
+            loadCatalog(statusLine);
+
+            backdrop.setDisplay(true);
+            animateTo(Transform2D.identity(), 0.22F, null);
+        }
+
+        /** updateCatalogPageLabel：刷新页码显示。 */
+        private void updateCatalogPageLabel() {
+            if (catalogPageLabel == null) {
+                return;
+            }
+            catalogPageLabel.clearAllChildren();
+            UIElement label = absolute(0, 2, 56, 14);
+            label.setAllowHitTest(false);
+            label.style(style -> style.backgroundTexture(new TextTexture(Component.translatable(
+                    "screen.simukraft.citizen_info.skin.catalog.page", catalogPage).getString())
+                    .setWidth(56)
+                    .setType(TextTexture.TextType.NORMAL)
+                    .setColor(CARD_TEXT)
+                    .setDropShadow(false)).zIndex(12));
+            catalogPageLabel.addChild(label);
+        }
+
+        /** loadCatalog：按当前查询条件拉取目录并构建列表。 */
+        private void loadCatalog(UIElement statusLine) {
+            String catalogUrl = ClientConfig.skinCatalogUrl();
+            if (catalogUrl.isBlank()) {
+                setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.no_config"), 0xFFB00020);
+                drawer.addChild(text(Component.translatable("screen.simukraft.citizen_info.skin.catalog.no_config_hint"), 14, 92, DRAWER_WIDTH - 28, 10, CARD_TEXT, TextTexture.TextType.NORMAL));
+                return;
+            }
+            setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.loading"), CARD_TEXT);
+            CitizenSkinDownloadService.fetchCatalog(catalogUrl,
+                    new CitizenSkinDownloadService.CatalogQuery(catalogPage, catalogKeyword, catalogSort),
+                    result -> {
+                        if (!result.success()) {
+                            String errorKey = "catalog_empty".equals(result.errorKey())
+                                    ? "screen.simukraft.citizen_info.skin.catalog.empty"
+                                    : "screen.simukraft.citizen_info.skin.download.error." + result.errorKey();
+                            setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.download_fail",
+                                    Component.translatable(errorKey)), 0xFFB00020);
+                            return;
+                        }
+                        catalogHasNext = result.hasNext();
+                        updateCatalogPageLabel();
+                        buildCatalogList(result.entries(), statusLine);
+                    });
+        }
+
+        /** showCatalogApiSettings：API 管理子视图，列出已保存 API，可添加、切换、删除。 */
+        private void showCatalogApiSettings() {
+            drawer.clearAllChildren();
+
+            CitizenSectionPanelElement frame = new CitizenSectionPanelElement(CARD_PAPER, CARD_BORDER_OUTER, CARD_BORDER_INNER);
+            frame.layout(layout -> absoluteLayout(layout, 0, 0, DRAWER_WIDTH, DRAWER_HEIGHT));
+            frame.style(style -> style.zIndex(0));
+            drawer.addChild(frame);
+
+            UIElement header = absolute(3, 3, DRAWER_WIDTH - 6, 20);
+            header.setAllowHitTest(false);
+            header.style(style -> style.backgroundTexture(new ColorRectTexture(CARD_HEADER)).zIndex(2));
+            drawer.addChild(header);
+            drawer.addChild(text(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_title"), 8, 8, 180, 11, 0xFFFFFFFF, TextTexture.TextType.NORMAL));
+
+            UIElement accent = absolute(3, 23, DRAWER_WIDTH - 6, 2);
+            accent.setAllowHitTest(false);
+            accent.style(style -> style.backgroundTexture(new ColorRectTexture(CARD_ACCENT)).zIndex(3));
+            drawer.addChild(accent);
+
+            // 新增 API 行：名称 + 地址（右上返回按钮占用该行右侧）。
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.back", 226, 30, 60, 18, this::showSkinDownloader));
+            TextField nameField = new TextField();
+            nameField.setAnyString();
+            nameField.getTextFieldStyle().placeholder(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_name_placeholder"));
+            nameField.layout(layout -> absoluteLayout(layout, 14, 30, 64, 18));
+            nameField.style(style -> style.zIndex(10));
+            drawer.addChild(nameField);
+            TextField urlField = new TextField();
+            urlField.setAnyString();
+            urlField.setText("https://");
+            urlField.getTextFieldStyle().placeholder(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_placeholder"));
+            urlField.layout(layout -> absoluteLayout(layout, 82, 30, 140, 18));
+            urlField.style(style -> style.zIndex(10));
+            drawer.addChild(urlField);
+
+            UIElement statusLine = absolute(14, 180, DRAWER_WIDTH - 28, 14);
+            statusLine.setAllowHitTest(false);
+            statusLine.style(style -> style.zIndex(11));
+            drawer.addChild(statusLine);
+            catalogStatusLine = statusLine;
+
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.catalog.api_add", 14, 52, 88, 18, () -> addCatalogApi(nameField, urlField, statusLine)));
+            drawer.addChild(text(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_list"), 110, 54, 160, 12, CARD_TEXT, TextTexture.TextType.NORMAL));
+
+            // 已保存 API 列表。
+            UIElement listPanel = new UIElement().layout(layout -> {
+                layout.widthPercent(100);
+                layout.flexDirection(FlexDirection.COLUMN);
+                layout.gapAll(4);
+                layout.paddingAll(4);
+            });
+            List<ClientConfig.CatalogApi> apis = ClientConfig.catalogApis();
+            String activeUrl = ClientConfig.skinCatalogUrl();
+            if (apis.isEmpty()) {
+                listPanel.addChild(cardLabel(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_empty"), CARD_TEXT));
+            } else {
+                for (ClientConfig.CatalogApi api : apis) {
+                    listPanel.addChild(catalogApiRow(api, api.url().equals(activeUrl), statusLine));
+                }
+            }
+            ScrollerView scroller = new ScrollerView();
+            scroller.scrollerStyle(style -> style.mode(ScrollerMode.VERTICAL));
+            scroller.layout(layout -> absoluteLayout(layout, 8, 66, DRAWER_WIDTH - 16, 84));
+            scroller.addScrollViewChild(listPanel);
+            drawer.addChild(scroller);
+
+            // 底部：恢复默认 + 当前 API 提示。
+            drawer.addChild(cardButton("screen.simukraft.citizen_info.skin.catalog.api_reset", 14, 156, 90, 18, () -> {
+                ClientConfig.setSkinCatalogUrl(ClientConfig.DEFAULT_SKIN_CATALOG_URL);
+                resetCatalogQuery();
+                showSkinDownloader();
+            }));
+            drawer.addChild(text(Component.literal(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_current",
+                    activeDisplayName(apis, activeUrl)).getString()), 110, 158, 170, 14, CARD_TEXT, TextTexture.TextType.LEFT));
+
+            backdrop.setDisplay(true);
+            animateTo(Transform2D.identity(), 0.22F, null);
+        }
+
+        /** catalogApiRow：单个 API 行（名称 + 使用/使用中 + 删除）。 */
+        private UIElement catalogApiRow(ClientConfig.CatalogApi api, boolean active, UIElement statusLine) {
+            UIElement row = new UIElement().layout(layout -> {
+                layout.widthPercent(100);
+                layout.height(24);
+                layout.flexDirection(FlexDirection.ROW);
+                layout.gapAll(6);
+                layout.alignItems(AlignItems.CENTER);
+                layout.paddingAll(3);
+            });
+            row.addChild(cardLabel(Component.literal(api.name().isBlank() ? api.url() : api.name()), CARD_TEXT));
+            if (active) {
+                row.addChild(cardLabelFixed(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_using"), 0xFF2E7D32, 44));
+            } else {
+                Button useButton = new Button();
+                useButton.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_use"));
+                useButton.setOnClick(event -> {
+                    ClientConfig.setSkinCatalogUrl(api.url());
+                    resetCatalogQuery();
+                    showSkinDownloader();
+                });
+                useButton.layout(layout -> {
+                    layout.width(48);
+                    layout.height(16);
+                    layout.flexShrink(0);
+                });
+                useButton.style(style -> style.zIndex(20));
+                row.addChild(useButton);
+            }
+            Button removeButton = new Button();
+            removeButton.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_delete"));
+            removeButton.setOnClick(event -> {
+                ClientConfig.removeCatalogApi(api.url());
+                showCatalogApiSettings();
+            });
+            removeButton.layout(layout -> {
+                layout.width(44);
+                layout.height(16);
+                layout.flexShrink(0);
+            });
+            removeButton.style(style -> style.zIndex(20));
+            row.addChild(removeButton);
+            return row;
+        }
+
+        /** addCatalogApi：校验并添加玩家输入的 API 到列表，留在本页供继续管理。 */
+        private void addCatalogApi(TextField nameField, TextField urlField, UIElement statusLine) {
+            String url = urlField.getValue() == null ? "" : urlField.getValue().trim();
+            if (url.isBlank() || !CitizenSkinDownloadService.isValidCatalogUrl(url)) {
+                setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_invalid"), 0xFFB00020);
+                return;
+            }
+            String name = nameField.getValue() == null ? "" : nameField.getValue().trim();
+            ClientConfig.addCatalogApi(name, url);
+            setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_added"), 0xFF2E7D32);
+            showCatalogApiSettings();
+        }
+
+        /** activeDisplayName：当前生效 API 的展示名，找不到时回退地址。 */
+        private String activeDisplayName(List<ClientConfig.CatalogApi> apis, String activeUrl) {
+            for (ClientConfig.CatalogApi api : apis) {
+                if (api.url().equals(activeUrl)) {
+                    return api.name().isBlank() ? api.url() : api.name();
+                }
+            }
+            return activeUrl.isBlank() ? Component.translatable("screen.simukraft.citizen_info.none").getString() : activeUrl;
+        }
+
+        /** resetCatalogQuery：搜索/排序/翻页状态重置回首页。 */
+        private void resetCatalogQuery() {
+            catalogPage = 1;
+            catalogKeyword = "";
+            catalogSort = "";
+            catalogHasNext = false;
+        }
+
+        /** buildCatalogList：用目录条目构建可滚动皮肤列表，逐行异步加载缩略图。 */
+        private void buildCatalogList(List<CitizenSkinDownloadService.CatalogEntry> entries, UIElement statusLine) {
+            setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.count", entries.size()), 0xFF2E7D32);
+            UIElement listPanel = new UIElement().layout(layout -> {
+                layout.widthPercent(100);
+                layout.flexDirection(FlexDirection.COLUMN);
+                layout.gapAll(4);
+                layout.paddingAll(4);
+            });
+            for (CitizenSkinDownloadService.CatalogEntry entry : entries) {
+                UIElement row = new UIElement().layout(layout -> {
+                    layout.widthPercent(100);
+                    layout.height(26);
+                    layout.flexDirection(FlexDirection.ROW);
+                    layout.gapAll(6);
+                    layout.alignItems(AlignItems.CENTER);
+                    layout.paddingAll(3);
+                });
+                populateCatalogRow(row, entry, false);
+                listPanel.addChild(row);
+                CitizenSkinDownloadService.fetchThumbnailAsync(entry.url(), entry.name(), ok -> populateCatalogRow(row, entry, ok));
+            }
+            ScrollerView scroller = new ScrollerView();
+            scroller.scrollerStyle(style -> style.mode(ScrollerMode.VERTICAL));
+            scroller.layout(layout -> absoluteLayout(layout, 8, 88, DRAWER_WIDTH - 16, 96));
+            scroller.addScrollViewChild(listPanel);
+            drawer.addChild(scroller);
+        }
+
+        /** populateCatalogRow：重建目录行（缩略图 + 名称 + 下载/已下载）。 */
+        private void populateCatalogRow(UIElement row, CitizenSkinDownloadService.CatalogEntry entry, boolean thumbReady) {
+            row.clearAllChildren();
+            boolean downloaded = catalogDownloaded.contains(entry.name());
+            UIElement avatar = thumbReady
+                    ? CitizenAvatarFactory.createHead(CitizenSkinLibrary.catalogTextureLocation(entry.name()), CARD_ACCENT)
+                    : CitizenAvatarFactory.createHead((String) null, CARD_ACCENT);
+            avatar.layout(layout -> {
+                layout.width(20);
+                layout.height(20);
+                layout.flexShrink(0);
+            });
+            avatar.setAllowHitTest(false);
+            row.addChild(avatar);
+            row.addChild(cardLabel(Component.literal(entry.displayName()), CARD_TEXT));
+            if (downloaded) {
+                row.addChild(cardLabelFixed(Component.translatable("screen.simukraft.citizen_info.skin.catalog.downloaded"), 0xFF2E7D32, 48));
+            } else {
+                Button downloadButton = new Button();
+                downloadButton.setText(Component.translatable("screen.simukraft.citizen_info.skin.download_go"));
+                downloadButton.setOnClick(event -> downloadCatalogSkin(entry, row));
+                downloadButton.layout(layout -> {
+                    layout.width(48);
+                    layout.height(16);
+                    layout.flexShrink(0);
+                });
+                downloadButton.style(style -> style.zIndex(20));
+                row.addChild(downloadButton);
+            }
+        }
+
+        /** downloadCatalogSkin：下载目录中的皮肤并刷新皮肤库。 */
+        private void downloadCatalogSkin(CitizenSkinDownloadService.CatalogEntry entry, UIElement row) {
+            CitizenSkinDownloadService.downloadAsync(entry.url(), entry.name(), result -> {
+                boolean thumbReady = CitizenSkinLibrary.catalogTextureLocation(entry.name()) != null;
+                if (result.success()) {
+                    catalogDownloaded.add(entry.name());
+                    CitizenSkinLibrary.reload();
+                    populateCatalogRow(row, entry, thumbReady);
+                    if (catalogStatusLine != null) {
+                        setDownloadStatus(catalogStatusLine, Component.translatable("screen.simukraft.citizen_info.skin.download_ok", result.fileName()), 0xFF2E7D32);
+                    }
+                } else {
+                    populateCatalogRow(row, entry, thumbReady);
+                    if (catalogStatusLine != null) {
+                        setDownloadStatus(catalogStatusLine, Component.translatable("screen.simukraft.citizen_info.skin.download_fail",
+                                Component.translatable("screen.simukraft.citizen_info.skin.download.error." + result.errorKey())), 0xFFB00020);
+                    }
+                }
+            });
+        }
+
+        /** setDownloadStatus：重建下载状态行文本。 */
+        private void setDownloadStatus(UIElement statusLine, Component component, int color) {
+            statusLine.clearAllChildren();
+            UIElement label = absolute(0, 0, DRAWER_WIDTH - 28, 14);
+            label.setAllowHitTest(false);
+            label.style(style -> style.backgroundTexture(new TextTexture(component.getString())
+                    .setWidth(DRAWER_WIDTH - 28)
+                    .setType(TextTexture.TextType.LEFT)
+                    .setColor(color)
+                    .setDropShadow(false)).zIndex(12));
+            statusLine.addChild(label);
+        }
+
+        private UIElement cardButton(String key, int x, int y, int width, int height, Runnable action) {
+            Button button = new Button();
+            button.setText(Component.translatable(key));
+            button.setOnClick(event -> action.run());
+            button.layout(layout -> absoluteLayout(layout, x, y, width, height));
+            button.style(style -> style.zIndex(20));
+            return button;
+        }
+
+        private Label cardLabel(Component component, int color) {
+            Label label = new Label();
+            label.setText(component);
+            label.textStyle(style -> style.textColor(color).textShadow(false));
+            label.layout(layout -> {
+                layout.flex(1);
+                layout.height(14);
+            });
+            return label;
+        }
+
+        private Label cardLabelFixed(Component component, int color, int width) {
+            Label label = new Label();
+            label.setText(component);
+            label.textStyle(style -> style.textColor(color).textShadow(false));
+            label.layout(layout -> {
+                layout.width(width);
+                layout.height(14);
+                layout.flexShrink(0);
+            });
+            return label;
         }
 
         private void close() {
