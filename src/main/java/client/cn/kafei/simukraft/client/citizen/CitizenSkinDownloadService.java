@@ -103,12 +103,13 @@ public final class CitizenSkinDownloadService {
         }
     }
 
-    /** CatalogQuery: 下载中心查询条件（页号、关键词、排序，sort 空串表示默认/最新）。 */
-    public record CatalogQuery(int page, String keyword, String sort) {
+    /** CatalogQuery: 下载中心查询条件（页号、关键词、排序、类型；sort/type 空串表示默认/全部）。 */
+    public record CatalogQuery(int page, String keyword, String sort, String type) {
         public CatalogQuery {
             page = Math.max(1, page);
             keyword = keyword == null ? "" : keyword.trim();
             sort = sort == null ? "" : sort.trim();
+            type = type == null ? "" : type.trim();
         }
     }
 
@@ -270,6 +271,9 @@ public final class CitizenSkinDownloadService {
         }
         if (!query.sort().isBlank()) {
             builder.append("&sort=").append(query.sort());
+        }
+        if (!query.type().isBlank()) {
+            builder.append("&filter=").append(query.type());
         }
         return builder.toString();
     }

@@ -186,6 +186,46 @@ public final class CitizenSkinLibrary {
         return new ArrayList<>(SKINS.keySet());
     }
 
+    /** hasLocalFile: 本地 simukraftskins 文件夹中是否存在该皮肤文件（决定是否可删除）。 */
+    public static boolean hasLocalFile(String name) {
+        if (name == null || name.isBlank()) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        Path dir = rootDirectory();
+        return Files.isRegularFile(dir.resolve(lower + ".png"))
+                || Files.isRegularFile(dir.resolve(lower + ".jpg"))
+                || Files.isRegularFile(dir.resolve(lower + ".jpeg"));
+    }
+
+    /** deleteLocalSkin: 删除本地皮肤文件并释放贴图注册；仅本地存在文件时视为删除成功。 */
+    public static boolean deleteLocalSkin(String name) {
+        if (name == null || name.isBlank()) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        boolean removed = false;
+        Path dir = rootDirectory();
+        try {
+            removed = Files.deleteIfExists(dir.resolve(lower + ".png"));
+            if (!removed) {
+                removed = Files.deleteIfExists(dir.resolve(lower + ".jpg"));
+            }
+            if (!removed) {
+                removed = Files.deleteIfExists(dir.resolve(lower + ".jpeg"));
+            }
+        } catch (IOException exception) {
+            SimuKraft.LOGGER.warn("Simukraft: Failed to delete citizen skin file {}", lower, exception);
+        }
+        ResourceLocation rl = SKINS.remove(lower);
+        if (rl != null) {
+            Minecraft.getInstance().getTextureManager().release(rl);
+        }
+        // 单机/联机同名皮肤也会被服务端标记，删除时一并清除，便于重新下载后恢复。
+        SERVER_SKINS.remove(lower);
+        return removed;
+    }
+
     /** isFolderSkinPath: 是否为文件夹皮肤（simukraft:skins/ 前缀）。 */
     public static boolean isFolderSkinPath(String skinPath) {
         return skinPath != null && skinPath.startsWith(PREFIX);

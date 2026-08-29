@@ -94,10 +94,11 @@ public final class CitizenInfoUiRoot extends UIElement {
     private final Set<String> catalogDownloaded = new HashSet<>();
     /** 下载中心状态行引用，用于下载结果反馈。 */
     private UIElement catalogStatusLine;
-    /** 下载中心查询状态：页号、关键词、排序（空=最新，likes=点赞）与是否有下一页。 */
+    /** 下载中心查询状态：页号、关键词、排序（空=最新，likes=点赞）、类型（空=全部，steve/alex）与是否有下一页。 */
     private int catalogPage = 1;
     private String catalogKeyword = "";
     private String catalogSort = "";
+    private String catalogType = "";
     private boolean catalogHasNext;
     private UIElement catalogPageLabel;
 
@@ -605,6 +606,20 @@ public final class CitizenInfoUiRoot extends UIElement {
             if (current) {
                 row.addChild(cardLabelFixed(Component.translatable("screen.simukraft.citizen_info.skin.current"), 0xFF6D4C41, 40));
             }
+            if (CitizenSkinLibrary.hasLocalFile(name)) {
+                Button deleteButton = new Button();
+                deleteButton.setText(Component.translatable("screen.simukraft.citizen_info.skin.delete"));
+                deleteButton.setOnClick(event -> deleteSkin(name));
+                // 阻止冒泡，避免点删除时触发整行“应用皮肤”。
+                deleteButton.addEventListener(UIEvents.MOUSE_DOWN, UIEvent::stopPropagation);
+                deleteButton.layout(layout -> {
+                    layout.width(40);
+                    layout.height(16);
+                    layout.flexShrink(0);
+                });
+                deleteButton.style(style -> style.zIndex(20));
+                row.addChild(deleteButton);
+            }
             row.addEventListener(UIEvents.MOUSE_DOWN, event -> {
                 if (event.button == 0) {
                     applySkin(stored);
@@ -612,6 +627,18 @@ public final class CitizenInfoUiRoot extends UIElement {
                 }
             });
             return row;
+        }
+
+        /** deleteSkin：删除本地皮肤文件并刷新列表；若为当前使用的皮肤则回退默认。 */
+        private void deleteSkin(String name) {
+            if (!CitizenSkinLibrary.deleteLocalSkin(name)) {
+                return;
+            }
+            if (CitizenSkinLibrary.storedPath(name).equals(currentSkinPath)) {
+                currentSkinPath = "";
+                PacketDistributor.sendToServer(new CitizenSetSkinPacket(packet.citizenId(), ""));
+            }
+            showSkinPicker();
         }
 
         /** applySkin：本地更新皮肤并发送服务端，然后返回身份证卡片。 */
@@ -688,7 +715,19 @@ public final class CitizenInfoUiRoot extends UIElement {
                 }
             }));
 
-            UIElement statusLine = absolute(14, 74, DRAWER_WIDTH - 28, 14);
+            // 类型过滤 + 状态行。
+            String typeKey = "alex".equals(catalogType)
+                    ? "screen.simukraft.citizen_info.skin.catalog.type_alex"
+                    : "steve".equals(catalogType)
+                            ? "screen.simukraft.citizen_info.skin.catalog.type_steve"
+                            : "screen.simukraft.citizen_info.skin.catalog.type_all";
+            drawer.addChild(cardButton(typeKey, 14, 74, 120, 18, () -> {
+                catalogType = "alex".equals(catalogType) ? "" : "steve".equals(catalogType) ? "alex" : "steve";
+                catalogPage = 1;
+                showSkinDownloader();
+            }));
+
+            UIElement statusLine = absolute(140, 76, 146, 14);
             statusLine.setAllowHitTest(false);
             statusLine.style(style -> style.zIndex(11));
             drawer.addChild(statusLine);
@@ -727,7 +766,7 @@ public final class CitizenInfoUiRoot extends UIElement {
             }
             setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.loading"), CARD_TEXT);
             CitizenSkinDownloadService.fetchCatalog(catalogUrl,
-                    new CitizenSkinDownloadService.CatalogQuery(catalogPage, catalogKeyword, catalogSort),
+                    new CitizenSkinDownloadService.CatalogQuery(catalogPage, catalogKeyword, catalogSort, catalogType),
                     result -> {
                         if (!result.success()) {
                             String errorKey = "catalog_empty".equals(result.errorKey())
@@ -896,6 +935,7 @@ public final class CitizenInfoUiRoot extends UIElement {
             catalogPage = 1;
             catalogKeyword = "";
             catalogSort = "";
+            catalogType = "";
             catalogHasNext = false;
         }
 
@@ -923,7 +963,7 @@ public final class CitizenInfoUiRoot extends UIElement {
             }
             ScrollerView scroller = new ScrollerView();
             scroller.scrollerStyle(style -> style.mode(ScrollerMode.VERTICAL));
-            scroller.layout(layout -> absoluteLayout(layout, 8, 88, DRAWER_WIDTH - 16, 96));
+            scroller.layout(layout -> absoluteLayout(layout, 8, 92, DRAWER_WIDTH - 16, 98));
             scroller.addScrollViewChild(listPanel);
             drawer.addChild(scroller);
         }
