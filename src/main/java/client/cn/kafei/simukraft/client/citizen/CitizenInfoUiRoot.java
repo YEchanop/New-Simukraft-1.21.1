@@ -605,6 +605,19 @@ public final class CitizenInfoUiRoot extends UIElement {
             row.addChild(cardLabel(Component.literal(name), CARD_TEXT));
             if (current) {
                 row.addChild(cardLabelFixed(Component.translatable("screen.simukraft.citizen_info.skin.current"), 0xFF6D4C41, 40));
+            } else {
+                Button useButton = new Button();
+                useButton.setText(Component.translatable("screen.simukraft.citizen_info.skin.use"));
+                useButton.setOnClick(event -> applySkin(stored));
+                // 阻止冒泡，避免点「使用」时触发整行“应用皮肤”造成重复应用。
+                useButton.addEventListener(UIEvents.MOUSE_DOWN, UIEvent::stopPropagation);
+                useButton.layout(layout -> {
+                    layout.width(48);
+                    layout.height(16);
+                    layout.flexShrink(0);
+                });
+                useButton.style(style -> style.zIndex(20));
+                row.addChild(useButton);
             }
             if (CitizenSkinLibrary.hasLocalFile(name)) {
                 Button deleteButton = new Button();

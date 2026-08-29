@@ -175,6 +175,7 @@
     "screen.simukraft.citizen_info.skin.empty":  "Skin folder is empty. Put skin PNGs into the simukraftskins folder",
     "screen.simukraft.citizen_info.skin.folder_hint":  "Skin folder: %s",
     "screen.simukraft.citizen_info.skin.current":  "In use",
+    "screen.simukraft.citizen_info.skin.use":  "Use",
     "screen.simukraft.citizen_info.back":  "Back",
     "screen.simukraft.citizen_info.skin.download":  "Download Center",
     "screen.simukraft.citizen_info.skin.download_title":  "Skin Download Center",

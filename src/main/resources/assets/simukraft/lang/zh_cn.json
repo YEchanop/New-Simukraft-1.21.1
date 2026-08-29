@@ -176,6 +176,7 @@
     "screen.simukraft.citizen_info.skin.empty":  "皮肤文件夹为空，请将皮肤 PNG 放入 simukraftskins 文件夹",
     "screen.simukraft.citizen_info.skin.folder_hint":  "皮肤文件夹：%s",
     "screen.simukraft.citizen_info.skin.current":  "使用中",
+    "screen.simukraft.citizen_info.skin.use":  "使用",
     "screen.simukraft.citizen_info.back":  "返回",
     "screen.simukraft.citizen_info.skin.download":  "下载中心",
     "screen.simukraft.citizen_info.skin.download_title":  "皮肤下载中心",
