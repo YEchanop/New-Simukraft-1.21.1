@@ -42,6 +42,10 @@ public final class ClientConfig {
     public static final ModConfigSpec.IntValue RTS_MOVE_HOLD_SECONDS;
     public static final ModConfigSpec.ConfigValue<String> SKIN_CATALOG_URL;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> SKIN_CATALOG_LIST;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> CITIZEN_AI_ENDPOINTS;
+    public static final ModConfigSpec.ConfigValue<String> CITIZEN_AI_DEFAULT_ENDPOINT_ID;
+    public static final ModConfigSpec.ConfigValue<String> CITIZEN_AI_DEFAULT_MODEL_ID;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> CITIZEN_AI_ENDPOINT_LAST_MODEL_MAP;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -122,6 +126,32 @@ public final class ClientConfig {
                 .comment("Saved skin catalog APIs as \"name|url\" entries. Use the download center's API manager to add, switch and remove.")
                 .translation("config.simukraft.client.citizenSkin.catalogList")
                 .defineList("catalogList", List.of(DEFAULT_SKIN_CATALOG_NAME + "|" + DEFAULT_SKIN_CATALOG_URL), ClientConfig::isCatalogEntry);
+        builder.pop();
+        builder.push("citizenAi");
+        CITIZEN_AI_ENDPOINTS = builder
+                .comment(
+                        "Saved AI endpoints used by citizen AI chat as \"id|alias|baseUrl|apiKey|protocol|enabled|modelsCsv\" entries.",
+                        "modelsCsv uses semicolons to separate models; each model is \"modelId:name:enabled:default\".",
+                        "enabled/default use 0 or 1; default=1 marks the global default model of the endpoint.",
+                        "Use the AI settings panel to add, edit and remove endpoints."
+                )
+                .translation("config.simukraft.client.citizenAi.endpoints")
+                .defineListAllowEmpty("endpoints", List.of(), ClientConfig::isAiEndpointEntry);
+        CITIZEN_AI_DEFAULT_ENDPOINT_ID = builder
+                .comment("Id of the default AI endpoint selected when opening the chat dialog. Empty string means first enabled endpoint.")
+                .translation("config.simukraft.client.citizenAi.defaultEndpointId")
+                .define("defaultEndpointId", "");
+        CITIZEN_AI_DEFAULT_MODEL_ID = builder
+                .comment("Id of the default AI model under the default endpoint. Empty string means first enabled model of the endpoint.")
+                .translation("config.simukraft.client.citizenAi.defaultModelId")
+                .define("defaultModelId", "");
+        CITIZEN_AI_ENDPOINT_LAST_MODEL_MAP = builder
+                .comment(
+                        "Per-endpoint last selected model as \"endpointId|modelId\" entries.",
+                        "Automatically updated whenever a citizen AI chat switches models within an endpoint."
+                )
+                .translation("config.simukraft.client.citizenAi.endpointLastModelMap")
+                .defineListAllowEmpty("endpointLastModelMap", List.of(), ClientConfig::isEndpointLastModelEntry);
         builder.pop();
         SPEC = builder.build();
     }
@@ -313,5 +343,380 @@ public final class ClientConfig {
             case "TOP_LEFT", "TOP_RIGHT", "BOTTOM_LEFT", "BOTTOM_RIGHT", "TOP_CENTER", "BOTTOM_CENTER" -> true;
             default -> false;
         };
+    }
+
+    // ============================
+    // Citizen AI Chat - data model
+    // ============================
+
+    /** AiModel: 单个 AI 模型描述。 */
+    public record AiModel(String id, String name, boolean enabled, boolean isDefault) {
+    }
+
+    /** AiEndpoint: AI 服务端点（域名+鉴权+协议+模型列表）。 */
+    public record AiEndpoint(String id, String alias, String baseUrl, String apiKey, String protocol, boolean enabled, List<AiModel> models) {
+    }
+
+    /** maskApiKey: 日志与 UI 侧 API Key 脱敏，绝不返回完整明文。 */
+    public static String maskApiKey(String key) {
+        if (key == null || key.isEmpty()) {
+            return "";
+        }
+        if (key.length() <= 4) {
+            return "****";
+        }
+        return key.substring(0, 4) + "***";
+    }
+
+    /** isAiEndpointEntry: 配置元素校验，至少包含 6 个 | 分隔符（7 段）。 */
+    private static boolean isAiEndpointEntry(Object value) {
+        if (!(value instanceof String string) || string.isBlank()) {
+            return false;
+        }
+        int count = 0;
+        for (int i = 0; i < string.length(); i++) {
+            if (string.charAt(i) == '|') {
+                count++;
+            }
+        }
+        return count >= 6;
+    }
+
+    /** isEndpointLastModelEntry: 配置元素校验，条目必须形如 "endpointId|modelId"，且两段均非空。 */
+    private static boolean isEndpointLastModelEntry(Object value) {
+        if (!(value instanceof String string) || string.isBlank()) {
+            return false;
+        }
+        int separator = string.indexOf('|');
+        if (separator <= 0 || separator == string.length() - 1) {
+            return false;
+        }
+        // 不允许出现第二个 | 分隔符（保持 endpointId|modelId 两段结构）
+        return string.indexOf('|', separator + 1) < 0;
+    }
+
+    /** listAiEndpoints: 解析 CITIZEN_AI_ENDPOINTS 列表为强类型对象，格式错误条目跳过。 */
+    public static List<AiEndpoint> listAiEndpoints() {
+        List<AiEndpoint> result = new ArrayList<>();
+        List<? extends String> raw = CITIZEN_AI_ENDPOINTS.get();
+        if (raw == null || raw.isEmpty()) {
+            return result;
+        }
+        for (String entry : raw) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            String[] parts = entry.split("\\|", -1);
+            if (parts.length < 7) {
+                continue;
+            }
+            String id = parts[0] == null ? "" : parts[0].trim();
+            String alias = parts[1] == null ? "" : parts[1].trim();
+            String baseUrl = parts[2] == null ? "" : parts[2].trim();
+            String apiKey = parts[3] == null ? "" : parts[3];
+            String protocol = parts[4] == null ? "" : parts[4].trim();
+            String enabledStr = parts[5] == null ? "1" : parts[5].trim();
+            boolean enabled = !"0".equals(enabledStr);
+            String modelsCsv = parts[6] == null ? "" : parts[6];
+
+            if (id.isEmpty()) {
+                continue;
+            }
+
+            List<AiModel> models = new ArrayList<>();
+            if (!modelsCsv.isEmpty()) {
+                String[] modelParts = modelsCsv.split(";", -1);
+                for (String modelEntry : modelParts) {
+                    if (modelEntry == null || modelEntry.isBlank()) {
+                        continue;
+                    }
+                    String[] m = modelEntry.split(":", -1);
+                    if (m.length < 4) {
+                        continue;
+                    }
+                    String mid = m[0] == null ? "" : m[0].trim();
+                    String mname = m[1] == null ? "" : m[1].trim();
+                    String menabled = m[2] == null ? "1" : m[2].trim();
+                    String mdefault = m[3] == null ? "0" : m[3].trim();
+                    if (mid.isEmpty()) {
+                        continue;
+                    }
+                    models.add(new AiModel(
+                            mid,
+                            mname,
+                            !"0".equals(menabled),
+                            "1".equals(mdefault)
+                    ));
+                }
+            }
+
+            result.add(new AiEndpoint(id, alias, baseUrl, apiKey, protocol, enabled, models));
+        }
+        return result;
+    }
+
+    /** serializeAiEndpoint: 把 AiEndpoint 序列化为配置字符串。 */
+    private static String serializeAiEndpoint(AiEndpoint ep, String targetDefaultModelId) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(ep.id() == null ? "" : ep.id().trim()).append('|');
+        sb.append(ep.alias() == null ? "" : ep.alias().trim()).append('|');
+        sb.append(ep.baseUrl() == null ? "" : ep.baseUrl().trim()).append('|');
+        sb.append(ep.apiKey() == null ? "" : ep.apiKey()).append('|');
+        sb.append(ep.protocol() == null ? "" : ep.protocol().trim()).append('|');
+        sb.append(ep.enabled() ? '1' : '0').append('|');
+
+        List<AiModel> models = ep.models();
+        if (models != null && !models.isEmpty()) {
+            boolean first = true;
+            for (AiModel m : models) {
+                if (!first) sb.append(';');
+                first = false;
+                boolean isDefaultFlag = (targetDefaultModelId != null && targetDefaultModelId.equals(m.id()));
+                sb.append(m.id() == null ? "" : m.id().trim()).append(':');
+                sb.append(m.name() == null ? "" : m.name().trim()).append(':');
+                sb.append(m.enabled() ? '1' : '0').append(':');
+                sb.append(isDefaultFlag ? '1' : '0');
+            }
+        }
+        return sb.toString();
+    }
+
+    /** addAiEndpoint: 新增或覆盖（同 id）端点并写盘；若有默认模型同步设置默认。 */
+    public static void addAiEndpoint(AiEndpoint ep) {
+        if (ep == null || ep.id() == null || ep.id().isBlank()) {
+            return;
+        }
+        String defaultModelId = null;
+        List<AiModel> models = ep.models();
+        if (models != null) {
+            for (AiModel m : models) {
+                if (m.isDefault()) {
+                    defaultModelId = m.id();
+                    break;
+                }
+            }
+        }
+
+        List<String> entries = new ArrayList<>();
+        List<? extends String> raw = CITIZEN_AI_ENDPOINTS.get();
+        if (raw != null) {
+            for (String e : raw) {
+                if (e == null) continue;
+                String[] parts = e.split("\\|", -1);
+                if (parts.length >= 1 && ep.id().equals(parts[0].trim())) {
+                    continue; // 去旧
+                }
+                entries.add(e);
+            }
+        }
+        entries.add(serializeAiEndpoint(ep, defaultModelId));
+        CITIZEN_AI_ENDPOINTS.set(entries);
+
+        if (defaultModelId != null) {
+            setAiDefault(ep.id(), defaultModelId); // 内部会 save
+        } else {
+            SPEC.save();
+        }
+    }
+
+    /** updateAiEndpoint: 同 addAiEndpoint，同 id 覆盖并写盘。 */
+    public static void updateAiEndpoint(AiEndpoint ep) {
+        addAiEndpoint(ep);
+    }
+
+    /** removeAiEndpoint: 按 id 移除端点；若移除的是当前默认端点，自动回退第一个启用项。 */
+    public static void removeAiEndpoint(String endpointId) {
+        if (endpointId == null || endpointId.isBlank()) {
+            return;
+        }
+        List<String> entries = new ArrayList<>();
+        List<? extends String> raw = CITIZEN_AI_ENDPOINTS.get();
+        boolean removed = false;
+        if (raw != null) {
+            for (String e : raw) {
+                if (e == null) continue;
+                String[] parts = e.split("\\|", -1);
+                if (parts.length >= 1 && endpointId.equals(parts[0].trim())) {
+                    removed = true;
+                    continue;
+                }
+                entries.add(e);
+            }
+        }
+        CITIZEN_AI_ENDPOINTS.set(entries);
+
+        if (removed) {
+            // 同步清理 endpointLastModelMap 中被删端点的记录
+            List<String> lastModelEntries = new ArrayList<>();
+            List<? extends String> lastModelRaw = CITIZEN_AI_ENDPOINT_LAST_MODEL_MAP.get();
+            if (lastModelRaw != null) {
+                for (String e : lastModelRaw) {
+                    if (e == null || e.isBlank()) {
+                        continue;
+                    }
+                    int separator = e.indexOf('|');
+                    if (separator <= 0) {
+                        continue;
+                    }
+                    String eid = e.substring(0, separator).trim();
+                    if (!endpointId.equals(eid)) {
+                        lastModelEntries.add(e);
+                    }
+                }
+            }
+            CITIZEN_AI_ENDPOINT_LAST_MODEL_MAP.set(lastModelEntries);
+
+            String curEpId = CITIZEN_AI_DEFAULT_ENDPOINT_ID.get();
+            String curModelId = CITIZEN_AI_DEFAULT_MODEL_ID.get();
+            boolean needReset = endpointId.equals(curEpId == null ? "" : curEpId.trim());
+            if (!needReset) {
+                // 如果被删端点是当前默认 model 的所属端点，也回退
+                List<AiEndpoint> remaining = listAiEndpoints();
+                boolean found = false;
+                for (AiEndpoint ep : remaining) {
+                    if ((curModelId != null) && !curModelId.isEmpty()) {
+                        for (AiModel mm : ep.models()) {
+                            if (curModelId.equals(mm.id()) && endpointId.equals(ep.id())) {
+                                needReset = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (endpointId.equals(ep.id())) {
+                        found = true;
+                    }
+                }
+                if (!found && curEpId != null && curEpId.isEmpty()) {
+                    needReset = false;
+                }
+            }
+            if (needReset) {
+                List<AiEndpoint> remaining = listAiEndpoints();
+                String newEpId = "";
+                String newModelId = "";
+                for (AiEndpoint ep : remaining) {
+                    if (ep.enabled()) {
+                        newEpId = ep.id();
+                        for (AiModel m : ep.models()) {
+                            if (m.enabled()) {
+                                newModelId = m.id();
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                CITIZEN_AI_DEFAULT_ENDPOINT_ID.set(newEpId);
+                CITIZEN_AI_DEFAULT_MODEL_ID.set(newModelId);
+            }
+        }
+        SPEC.save();
+    }
+
+    /** setAiDefault: 校验 endpointId/modelId 组合存在后，设置默认值并同步持久化 default 标记。 */
+    public static void setAiDefault(String endpointId, String modelId) {
+        if (endpointId == null || modelId == null || endpointId.isBlank() || modelId.isBlank()) {
+            return;
+        }
+        List<AiEndpoint> endpoints = listAiEndpoints();
+        AiEndpoint targetEp = null;
+        AiModel targetModel = null;
+        for (AiEndpoint ep : endpoints) {
+            if (endpointId.equals(ep.id())) {
+                for (AiModel m : ep.models()) {
+                    if (modelId.equals(m.id())) {
+                        targetEp = ep;
+                        targetModel = m;
+                        break;
+                    }
+                }
+                if (targetEp != null) break;
+            }
+        }
+        if (targetEp == null || targetModel == null) {
+            return; // 组合不存在，不动作
+        }
+
+        // 序列化所有端点，仅目标端点目标模型的 default=1
+        List<String> newEntries = new ArrayList<>();
+        for (AiEndpoint ep : endpoints) {
+            String defModelId = ep.id().equals(targetEp.id()) ? targetModel.id() : null;
+            // 找原默认（非目标端点时，保持原 default 标记的模型）
+            if (defModelId == null) {
+                for (AiModel mm : ep.models()) {
+                    if (mm.isDefault()) {
+                        defModelId = mm.id();
+                        break;
+                    }
+                }
+            }
+            newEntries.add(serializeAiEndpoint(ep, defModelId));
+        }
+        CITIZEN_AI_ENDPOINTS.set(newEntries);
+        CITIZEN_AI_DEFAULT_ENDPOINT_ID.set(endpointId);
+        CITIZEN_AI_DEFAULT_MODEL_ID.set(modelId);
+        SPEC.save();
+    }
+
+    /** getLastModelByEndpoint: 根据端点 id 获取其上一次使用的模型 id；未记录时返回空串。 */
+    public static String getLastModelByEndpoint(String endpointId) {
+        if (endpointId == null || endpointId.isBlank()) {
+            return "";
+        }
+        String safeId = endpointId.trim();
+        List<? extends String> raw = CITIZEN_AI_ENDPOINT_LAST_MODEL_MAP.get();
+        if (raw == null || raw.isEmpty()) {
+            return "";
+        }
+        for (String entry : raw) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            int separator = entry.indexOf('|');
+            if (separator <= 0) {
+                continue;
+            }
+            String eid = entry.substring(0, separator).trim();
+            if (safeId.equals(eid)) {
+                String mid = entry.substring(separator + 1);
+                return mid == null ? "" : mid.trim();
+            }
+        }
+        return "";
+    }
+
+    /** setLastModelByEndpoint: 设置指定端点最后一次选择的模型 id 并写盘。 */
+    public static void setLastModelByEndpoint(String endpointId, String modelId) {
+        if (endpointId == null || endpointId.isBlank() || modelId == null || modelId.isBlank()) {
+            return;
+        }
+        String safeEndpointId = endpointId.trim();
+        String safeModelId = modelId.trim();
+        List<String> entries = new ArrayList<>();
+        List<? extends String> raw = CITIZEN_AI_ENDPOINT_LAST_MODEL_MAP.get();
+        boolean found = false;
+        if (raw != null) {
+            for (String e : raw) {
+                if (e == null || e.isBlank()) {
+                    continue;
+                }
+                int separator = e.indexOf('|');
+                if (separator <= 0) {
+                    continue;
+                }
+                String eid = e.substring(0, separator).trim();
+                if (safeEndpointId.equals(eid)) {
+                    entries.add(safeEndpointId + "|" + safeModelId);
+                    found = true;
+                } else {
+                    entries.add(e);
+                }
+            }
+        }
+        if (!found) {
+            entries.add(safeEndpointId + "|" + safeModelId);
+        }
+        CITIZEN_AI_ENDPOINT_LAST_MODEL_MAP.set(entries);
+        SPEC.save();
     }
 }

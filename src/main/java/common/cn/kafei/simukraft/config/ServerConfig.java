@@ -68,6 +68,7 @@ public final class ServerConfig {
     public static final ModConfigSpec.DoubleValue MEDICAL_HEAL_AMOUNT;
     public static final ModConfigSpec.DoubleValue MEDICAL_DISEASE_CHANCE_PER_DAY;
     public static final ModConfigSpec.IntValue MEDICAL_DISEASE_TREATMENT_TICKS;
+    public static final ModConfigSpec.BooleanValue ENABLE_CITIZEN_AI_CHAT;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -376,6 +377,12 @@ public final class ServerConfig {
                 .translation("config.simukraft.medical.diseaseTreatmentTicks")
                 .defineInRange("diseaseTreatmentTicks", 24_000, 20, 2_400_000);
         builder.pop();
+        builder.push("citizenAi");
+        ENABLE_CITIZEN_AI_CHAT = builder
+                .comment("允许玩家在客户端使用 AI 与市民对话（不影响服务器数据，仅开关 UI 入口和服务端上下文包权限）")
+                .translation("config.simukraft.server.citizenAi.enableChat")
+                .define("enableChat", true);
+        builder.pop();
         SPEC = builder.build();
     }
 
@@ -617,6 +624,11 @@ public final class ServerConfig {
 
     public static int medicalDiseaseTreatmentTicks() {
         return MEDICAL_DISEASE_TREATMENT_TICKS.get();
+    }
+
+    /** enableCitizenAiChat: 全局开关玩家使用 AI 与市民对话的功能。 */
+    public static boolean enableCitizenAiChat() {
+        return Boolean.TRUE.equals(ENABLE_CITIZEN_AI_CHAT.get());
     }
 
     private static boolean isStringEntry(Object value) {

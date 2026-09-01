@@ -1,0 +1,12 @@
+- [x] Checkpoint 1: ClientConfig 新增 ENDPOINT_LAST_MODEL_MAP 配置项并通过构建（编译无错），定义时使用 defineListAllowEmpty，配套的 isEndpointLastModelEntry 校验方法在入参为无 `|` 字符串、null、空字符串时返回 false，含至少 1 个 `|` 返回 true。
+- [x] Checkpoint 2: `setLastModelByEndpoint(epId, modelId)` 写入后，立即 `getLastModelByEndpoint(epId)` 能读取相同值；同端点重复写入仅保留最后一条。
+- [x] Checkpoint 3: `removeAiEndpoint(epId)` 调用后，该端点在 ENDPOINT_LAST_MODEL_MAP 中的对应条目被清除（get 返回 null）。
+- [x] Checkpoint 4: 打开 AiModelPickerDialog，每个端点头行最左侧可见折叠图标（展开=▼，折叠=▶）；点击图标或头行空白可切换折叠状态，折叠时模型行消失、展开时显示。
+- [x] Checkpoint 5: 会话内折叠态保持：折叠端点 E → 关闭选择器 → 再次打开仍为折叠（不重启游戏）。
+- [x] Checkpoint 6: 端点头行右侧正确显示「上次：{modelId}」标签，存在记忆时显示、不存在时不显示；ID 过长会截断（≤20 字符视觉），字体使用 DIALOG_SUBTEXT 色 + 字号 9，不与 alias/host/protocol 标签重叠。
+- [x] Checkpoint 7: 搜索时若端点匹配到模型，即使处于折叠态也强制展开显示匹配结果，搜索结果不被折叠隐藏。
+- [x] Checkpoint 8: 点击确认（开始对话）或点击任一模型行后，ClientConfig 的上次映射同步更新；重新打开选择器后，对该端点使用 getLastModelByEndpoint 返回刚选的模型。
+- [x] Checkpoint 9: 端点记忆的模型若被禁用（enabled=false），解析默认时自动回退为该端点第一个启用模型，不出现选中禁用模型的情况。
+- [x] Checkpoint 10: 配置注入坏条目（如 `bad|`、`|x`、空、无 `|` 字符串）后，ClientConfig 解析不报异常，选择器 UI 正常启动且忽略坏条目。
+- [x] Checkpoint 11: 多端点（≥3）+ 多模型（每端 ≥5）场景，头行 4 个元素（折叠图标/alias/host+protocol/上次标签/「默认」徽标（如有））在对话框宽度 560 内无横向溢出，不出现水平滚动条或换行错位。
+- [x] Checkpoint 12: 编译通过，项目既定构建命令（如 `gradlew build`）不报编译错误；既有 citizen_ai_chat 相关功能回归：选择模型 → 开始对话 → 聊天顶栏摘要显示模型名 → 点切换模型 → 重新选择，整个闭环无异常。

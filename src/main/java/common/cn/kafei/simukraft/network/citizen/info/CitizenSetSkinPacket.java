@@ -43,7 +43,7 @@ public record CitizenSetSkinPacket(UUID citizenId, String skinPath) implements C
         return new CitizenSetSkinPacket(buffer.readUUID(), buffer.readUtf(256));
     }
 
-    /** handle：允许通过市民信息容器（近距离）或市民管理界面（城市 OFFICIAL 及以上权限）修改皮肤。 */
+    /** handle：允许通过市民信息容器（近距离）或市民管理界面修改皮肤。 */
     public static void handle(CitizenSetSkinPacket packet, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)
                 || !(player.level() instanceof ServerLevel level)) {
@@ -62,24 +62,9 @@ public record CitizenSetSkinPacket(UUID citizenId, String skinPath) implements C
             CitizenService.setSkin(level, citizen, sanitize(packet.skinPath()));
             return;
         }
-        // 分支二：从市民管理界面修改皮肤，需玩家在该市民所在城市至少拥有 OFFICIAL 权限。
-        // 同时 OP 等级 2+ 也可以直接操作（与 OP 城市管理逻辑一致）。
+        // 分支二：从市民管理界面修改皮肤，不再需要权限校验，所有玩家均可操作。
         CitizenManager citizenManager = CitizenManager.get(level);
         if (citizenManager.getCitizen(packet.citizenId()).isEmpty()) {
-            return;
-        }
-        boolean permitted = false;
-        if (player.hasPermissions(2)) {
-            permitted = true;
-        } else {
-            UUID cityId = citizenManager.getCitizen(packet.citizenId()).get().cityId();
-            if (cityId != null) {
-                permitted = CityManager.get(level).getCity(cityId)
-                        .map(city -> city.hasPermission(player.getUUID(), CityPermissionLevel.OFFICIAL))
-                        .orElse(false);
-            }
-        }
-        if (!permitted) {
             return;
         }
         CitizenEntity target = (CitizenEntity) level.getEntity(packet.citizenId());

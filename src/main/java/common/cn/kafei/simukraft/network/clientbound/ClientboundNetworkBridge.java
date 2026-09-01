@@ -7,6 +7,7 @@ import common.cn.kafei.simukraft.network.building.controlbox.ResidentialControlB
 import common.cn.kafei.simukraft.network.citizen.info.CitizenSkinTransferPacket;
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenFamilyGraphResponsePacket;
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageResponsePacket;
+import common.cn.kafei.simukraft.network.citizen.chat.CitizenChatContextResponsePacket;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkSyncPacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpenResponsePacket;
 import common.cn.kafei.simukraft.network.city.core.CityCoreOpCityListResponsePacket;
@@ -106,6 +107,13 @@ public final class ClientboundNetworkBridge {
     /** handleCityCitizenFamilyGraphResponse: 分发市民五代关系图响应。 */
     public static void handleCityCitizenFamilyGraphResponse(CityCitizenFamilyGraphResponsePacket packet) {
         HANDLER.get().handleCityCitizenFamilyGraphResponse(packet);
+    }
+
+    /** handleCitizenChatContextResponse: 分发市民 AI 聊天上下文响应。 */
+    public static void handleCitizenChatContextResponse(CitizenChatContextResponsePacket packet) {
+        // 公共层默认保存到内存并完成匹配 Future；客户端实现可进一步分发 UI。
+        CitizenChatContextResponsePacket.receiveOnClientThread(packet);
+        HANDLER.get().handleCitizenChatContextResponse(packet);
     }
 
     /** handleFarmlandBoxBoundsResponse: 分发农田范围预览响应。 */

@@ -5,12 +5,16 @@ import net.neoforged.api.distmarker.OnlyIn;
 import client.cn.kafei.simukraft.client.ui.SimuKraftUiTheme;
 import client.cn.kafei.simukraft.client.ui.SimuKraftFlexLayout;
 import client.cn.kafei.simukraft.client.ui.SimuKraftWindowFrame;
-import client.cn.kafei.simukraft.client.city.map.SimuMapManager;
 import client.cn.kafei.simukraft.client.citizen.CitizenAvatarFactory;
 import client.cn.kafei.simukraft.client.citizen.CitizenFamilyGraphCanvas;
 import client.cn.kafei.simukraft.client.citizen.CitizenSkinLibrary;
+import client.cn.kafei.simukraft.client.citizen.CitizenSkinDownloadService;
+import client.cn.kafei.simukraft.client.citizen.ai.AiSettingsPanel;
+import client.cn.kafei.simukraft.client.citizen.ai.CitizenChatDialog;
+import client.cn.kafei.simukraft.client.city.map.SimuMapManager;
 import client.cn.kafei.simukraft.client.city.map.SimuMapRegion;
 import common.cn.kafei.simukraft.city.CityPermissionLevel;
+import common.cn.kafei.simukraft.config.ClientConfig;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkBatchPurchasePacket;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkBatchReleasePacket;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkPurchasePacket;
@@ -69,6 +73,7 @@ import org.joml.Matrix4f;
 import org.joml.Vector2f;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -415,14 +420,39 @@ public final class CityCoreScreenOpener {
             layout.gapAll(6);
         });
 
-        TextField searchField = textField("", 200);
-        searchField.layout(layout -> {
+        // 顶栏：搜索框（flex1） + AI 设置按钮
+        UIElement topBar = new UIElement().layout(layout -> {
             layout.widthPercent(100);
-            layout.height(20);
+            layout.height(22);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(6);
+            layout.alignItems(AlignItems.CENTER);
             layout.flexShrink(0);
         });
+
+        TextField searchField = textField("", 200);
+        searchField.layout(layout -> {
+            layout.flex(1);
+            layout.height(20);
+        });
         searchField.getTextFieldStyle().placeholder(Component.translatable("screen.simukraft.city_core.citizen_manage.search"));
-        outer.addChild(searchField);
+        topBar.addChild(searchField);
+
+        // AI 设置按钮
+        Button aiSettingsBtn = new Button();
+        aiSettingsBtn.setText(Component.translatable("screen.simukraft.city_core.citizen_manage.ai_settings"));
+        aiSettingsBtn.style(s -> s.backgroundTexture(new ColorRectTexture(0xFF5D4037)));
+        aiSettingsBtn.textStyle(s -> s.textColor(0xFFFFFFFF).textShadow(false).fontSize(10.0F));
+        aiSettingsBtn.layout(layout -> {
+            layout.width(64);
+            layout.height(20);
+            layout.flexShrink(0);
+            layout.justifyContent(AlignContent.CENTER);
+            layout.flexDirection(FlexDirection.ROW);
+        });
+        // onClick 在 aiSettingsDialogHolder 初始化后绑定（见 citizensPanel 尾部）
+        topBar.addChild(aiSettingsBtn);
+        outer.addChild(topBar);
 
         UIElement listPanel = new UIElement().layout(layout -> {
             layout.widthPercent(100);
@@ -437,6 +467,34 @@ public final class CityCoreScreenOpener {
         final UUID[] skinTargetCitizenId = { null };
         final String[] skinTargetCurrentPath = { "" };
         final UIElement[] skinDialogHolder = { null };
+        // AI 设置弹窗引用（与 rename/skin 模式一致的 holder）
+        final UIElement[] aiSettingsDialogHolder = { null };
+        // 聊天流程引用：目标市民 + 聊天对话框（点击时按当前目标重建）
+        final UUID[] chatTargetCitizenId = { null };
+        final String[] chatTargetCitizenName = { "" };
+        final UIElement[] chatDialogHolder = { null };
+
+        // openChat：在市民行点击「聊天」后调用。因 citizenId 点击时才确定，
+        // 每次打开都基于当前 chatTarget* 重建一个聊天对话框，避免复用旧目标。
+        // 定义在 rebuild 之前，citizenRow 通过参数引用。
+        UUID chatCityId = activeWindow != null && activeWindow.packet != null
+                ? activeWindow.packet.cityId()
+                : null;
+        Runnable openChat = () -> {
+            // 若已有旧对话框，先移除再重建
+            if (chatDialogHolder[0] != null) {
+                outer.removeChild(chatDialogHolder[0]);
+                chatDialogHolder[0] = null;
+            }
+            UIElement chatDialog = CitizenChatDialog.create(
+                    chatCityId, chatTargetCitizenId[0], chatTargetCitizenName[0], packet.pos(),
+                    () -> { if (chatDialogHolder[0] != null) chatDialogHolder[0].setVisible(false); },
+                    () -> aiSettingsDialogHolder[0].setVisible(true));
+            chatDialog.setVisible(false);
+            chatDialogHolder[0] = chatDialog;
+            outer.addChild(chatDialog);
+            chatDialog.setVisible(true);
+        };
 
         Runnable confirmRename = () -> {
             if (renameCitizenId[0] != null && renameField[0] != null) {
@@ -456,7 +514,8 @@ public final class CityCoreScreenOpener {
                 String n = citizen.name() == null ? "" : citizen.name();
                 if (!q.isEmpty() && !n.toLowerCase(Locale.ROOT).contains(q)) continue;
                 listPanel.addChild(citizenRow(packet, citizen, renameCitizenId, renameField, renameDialogHolder,
-                        skinTargetCitizenId, skinTargetCurrentPath, skinDialogHolder));
+                        skinTargetCitizenId, skinTargetCurrentPath, skinDialogHolder,
+                        chatTargetCitizenId, chatTargetCitizenName, openChat));
                 any = true;
             }
             if (!any) listPanel.addChild(line(Component.translatable("screen.simukraft.city_core.citizen_manage.empty")));
@@ -485,6 +544,15 @@ public final class CityCoreScreenOpener {
         skinDialog.setVisible(false);
         skinDialogHolder[0] = skinDialog;
         outer.addChild(skinDialog);
+
+        // AI 设置弹窗：与 rename/skin 一致的 holder 模式，点击顶栏按钮显示。
+        UIElement aiSettingsDialog = AiSettingsPanel.createOverlay(
+                () -> { /* 保存后不自动关闭，用户可继续编辑 */ },
+                () -> { aiSettingsDialogHolder[0].setVisible(false); });
+        aiSettingsDialog.setVisible(false);
+        aiSettingsDialogHolder[0] = aiSettingsDialog;
+        outer.addChild(aiSettingsDialog);
+        aiSettingsBtn.setOnClick(e -> aiSettingsDialogHolder[0].setVisible(true));
 
         return outer;
     }
@@ -580,7 +648,8 @@ public final class CityCoreScreenOpener {
 
     private static UIElement citizenRow(CityCitizenManageResponsePacket packet, CityCitizenManageResponsePacket.CitizenEntry citizen,
                                         UUID[] renameCitizenId, TextField[] renameField, UIElement[] renameDialogHolder,
-                                        UUID[] skinTargetCitizenId, String[] skinTargetCurrentPath, UIElement[] skinDialogHolder) {
+                                        UUID[] skinTargetCitizenId, String[] skinTargetCurrentPath, UIElement[] skinDialogHolder,
+                                        UUID[] chatTargetCitizenId, String[] chatTargetCitizenName, Runnable openChat) {
         UIElement row = new UIElement().layout(layout -> {
             layout.widthPercent(100);
             layout.height(44);
@@ -622,6 +691,13 @@ public final class CityCoreScreenOpener {
                 CitizenSkinLibrary.ensureScanned();
                 skinDialogHolder[0].setVisible(true);
             };
+            // chatAction：写入目标市民并显示聊天对话框（对话框内先弹模型选择器）。
+            Runnable chatAction = () -> {
+                chatTargetCitizenId[0] = citizen.citizenId();
+                chatTargetCitizenName[0] = citizen.name() != null ? citizen.name() : "";
+                openChat.run();
+            };
+            buttonGroup.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.chat", 44, chatAction));
             buttonGroup.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.skin", 44, skinAction));
             buttonGroup.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.rename", 44,
                     () -> openRenameDialog(renameCitizenId, renameField, renameDialogHolder, citizen.citizenId(), citizen.name())));
@@ -983,6 +1059,7 @@ public final class CityCoreScreenOpener {
     /**
      * skinDialog: 市民管理界面的皮肤选择弹窗，与身份证界面的皮肤子视图功能一致：
      * 刷新列表、恢复默认、选择/删除本地皮肤并即时应用；关闭时会刷新行头像。
+     * 新增下载中心：从皮肤目录API拉取、搜索、排序、翻页、下载皮肤。
      */
     private static UIElement skinDialog(UUID[] citizenIdRef, String[] currentPathRef, Runnable onClose, Runnable onRequestServer) {
         final int DIALOG_W = 420;
@@ -990,6 +1067,7 @@ public final class CityCoreScreenOpener {
         final int DIALOG_ACCENT = 0xFF6D4C41;
         final int DIALOG_PAPER = 0xFFF5F0E1;
         final int DIALOG_TEXT = 0xFF3E2723;
+        final int CARD_ACCENT = 0xFFC8A260;
 
         UIElement overlay = new UIElement().layout(layout -> {
             layout.positionType(TaffyPosition.ABSOLUTE);
@@ -1026,7 +1104,20 @@ public final class CityCoreScreenOpener {
         header.addChild(title);
         dialog.addChild(header);
 
-        // 当前信息 + 顶栏按钮：刷新 / 默认 / 关闭
+        // 下载中心状态
+        final Set<String> catalogDownloaded = new HashSet<>();
+        final UIElement[] catalogStatusLine = { null };
+        final int[] catalogPage = { 1 };
+        final String[] catalogKeyword = { "" };
+        final String[] catalogSort = { "" };
+        final String[] catalogType = { "" };
+        final boolean[] catalogHasNext = { false };
+        final UIElement[] catalogPageLabel = { null };
+        final UIElement[] contentHolder = { new UIElement() };
+        contentHolder[0].layout(layout -> { layout.flex(1); layout.widthPercent(100); });
+        dialog.addChild(contentHolder[0]);
+
+        // 当前信息 + 顶栏按钮：刷新 / 默认 / 下载 / 关闭
         UIElement topRow = new UIElement().layout(layout -> {
             layout.widthPercent(100);
             layout.height(24);
@@ -1064,11 +1155,42 @@ public final class CityCoreScreenOpener {
         resetBtn.layout(layout -> layout.height(20));
         topRow.addChild(resetBtn);
 
+        Button downloadBtn = memberActionButton("screen.simukraft.citizen_info.skin.download", 64, () -> {
+            showDownloaderView(contentHolder[0], dialog, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                    catalogDownloaded, catalogStatusLine, catalogPage, catalogKeyword, catalogSort, catalogType,
+                    catalogHasNext, catalogPageLabel,
+                    () -> showSkinPickerView(contentHolder[0], citizenIdRef, currentPathRef, updateCurrentLabel, onClose,
+                            refreshBtn, onRequestServer, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                            catalogDownloaded, catalogStatusLine, catalogPage, catalogKeyword, catalogSort, catalogType,
+                            catalogHasNext, catalogPageLabel));
+        });
+        downloadBtn.layout(layout -> layout.height(20));
+        topRow.addChild(downloadBtn);
+
         Button closeBtn = memberActionButton("screen.simukraft.citizen_info.back", 48, onClose);
         closeBtn.layout(layout -> layout.height(20));
         topRow.addChild(closeBtn);
         dialog.addChild(topRow);
 
+        // 初始化：展示皮肤选择列表
+        showSkinPickerView(contentHolder[0], citizenIdRef, currentPathRef, updateCurrentLabel, onClose,
+                refreshBtn, onRequestServer, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                catalogDownloaded, catalogStatusLine, catalogPage, catalogKeyword, catalogSort, catalogType,
+                catalogHasNext, catalogPageLabel);
+
+        overlay.addChild(dialog);
+        overlay.addEventListener(UIEvents.MOUSE_DOWN, e -> e.stopPropagation());
+        return overlay;
+    }
+
+    private static void showSkinPickerView(UIElement holder, UUID[] citizenIdRef, String[] currentPathRef,
+                                           Runnable updateCurrentLabel, Runnable onCloseAfterApply,
+                                           Button refreshBtn, Runnable onRequestServer,
+                                           int DIALOG_W, int DIALOG_H, int DIALOG_TEXT, int CARD_ACCENT,
+                                           Set<String> catalogDownloaded, UIElement[] catalogStatusLine,
+                                           int[] catalogPage, String[] catalogKeyword, String[] catalogSort,
+                                           String[] catalogType, boolean[] catalogHasNext, UIElement[] catalogPageLabel) {
+        holder.clearAllChildren();
         // 皮肤列表滚动容器
         UIElement listPanel = new UIElement().layout(layout -> {
             layout.widthPercent(100);
@@ -1088,13 +1210,13 @@ public final class CityCoreScreenOpener {
                 listPanel.addChild(empty);
             } else {
                 for (String name : names) {
-                    listPanel.addChild(skinDialogRow(name, citizenIdRef, currentPathRef, updateCurrentLabel, onClose));
+                    listPanel.addChild(skinDialogRow(name, citizenIdRef, currentPathRef, updateCurrentLabel, onCloseAfterApply));
                 }
             }
         };
         rebuildList.run();
 
-        // 刷新按钮和删除操作都需要重建列表，这里简单把刷新回调包一层
+        // 刷新按钮和删除操作都需要重建列表
         refreshBtn.setOnClick(event -> {
             CitizenSkinLibrary.reload();
             if (onRequestServer != null) {
@@ -1110,7 +1232,7 @@ public final class CityCoreScreenOpener {
             layout.widthPercent(100);
         });
         scroller.addScrollViewChild(listPanel);
-        dialog.addChild(scroller);
+        holder.addChild(scroller);
 
         // 底部提示
         Label hint = new Label();
@@ -1118,12 +1240,499 @@ public final class CityCoreScreenOpener {
                 CitizenSkinLibrary.rootDirectory().toString()));
         hint.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(9.0F));
         hint.layout(layout -> { layout.widthPercent(100); layout.height(10); });
-        dialog.addChild(hint);
-
-        overlay.addChild(dialog);
-        overlay.addEventListener(UIEvents.MOUSE_DOWN, e -> e.stopPropagation());
-        return overlay;
+        holder.addChild(hint);
     }
+
+    private static void showDownloaderView(UIElement holder, UIElement dialog, int DIALOG_W, int DIALOG_H,
+                                           int DIALOG_TEXT, int CARD_ACCENT,
+                                           Set<String> catalogDownloaded, UIElement[] catalogStatusLineRef,
+                                           int[] catalogPage, String[] catalogKeyword, String[] catalogSort,
+                                           String[] catalogType, boolean[] catalogHasNext, UIElement[] catalogPageLabelRef,
+                                           Runnable backToPicker) {
+        holder.clearAllChildren();
+        CitizenSkinLibrary.clearCatalogThumbnails();
+
+        UIElement content = new UIElement().layout(layout -> {
+            layout.flex(1);
+            layout.widthPercent(100);
+            layout.flexDirection(FlexDirection.COLUMN);
+            layout.gapAll(4);
+        });
+
+        // 关键词搜索行
+        TextField searchField = new TextField();
+        searchField.setAnyString();
+        searchField.setText(catalogKeyword[0]);
+        searchField.getTextFieldStyle().placeholder(Component.translatable("screen.simukraft.citizen_info.skin.catalog.search_placeholder"));
+        searchField.layout(layout -> { layout.width(150); layout.height(18); });
+        UIElement searchRow = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(22);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(6);
+            layout.alignItems(AlignItems.CENTER);
+        });
+        searchRow.addChild(searchField);
+        Button searchBtn = memberActionButton("screen.simukraft.citizen_info.skin.catalog.search", 52, () -> {
+            catalogKeyword[0] = searchField.getValue() == null ? "" : searchField.getValue().trim();
+            catalogPage[0] = 1;
+            showDownloaderView(holder, dialog, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                    catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort, catalogType,
+                    catalogHasNext, catalogPageLabelRef, backToPicker);
+        });
+        searchBtn.layout(layout -> layout.height(18));
+        searchRow.addChild(searchBtn);
+        Button backBtn = memberActionButton("screen.simukraft.citizen_info.back", 52, backToPicker);
+        backBtn.layout(layout -> layout.height(18));
+        UIElement spacer = new UIElement();
+        spacer.layout(layout -> { layout.flex(1); });
+        searchRow.addChild(spacer);
+        searchRow.addChild(backBtn);
+        content.addChild(searchRow);
+
+        // 排序切换 + 翻页行
+        String sortKey = "likes".equals(catalogSort[0])
+                ? "screen.simukraft.citizen_info.skin.catalog.sort.show_likes"
+                : "screen.simukraft.citizen_info.skin.catalog.sort.show_latest";
+        UIElement sortRow = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(22);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(6);
+            layout.alignItems(AlignItems.CENTER);
+        });
+        Button sortBtn = memberActionButton(sortKey, 64, () -> {
+            catalogSort[0] = "likes".equals(catalogSort[0]) ? "" : "likes";
+            catalogPage[0] = 1;
+            showDownloaderView(holder, dialog, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                    catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort, catalogType,
+                    catalogHasNext, catalogPageLabelRef, backToPicker);
+        });
+        sortBtn.layout(layout -> layout.height(18));
+        sortRow.addChild(sortBtn);
+        Button prevBtn = memberActionButton("screen.simukraft.citizen_info.skin.catalog.prev", 56, () -> {
+            if (catalogPage[0] > 1) {
+                catalogPage[0]--;
+                showDownloaderView(holder, dialog, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                        catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort, catalogType,
+                        catalogHasNext, catalogPageLabelRef, backToPicker);
+            }
+        });
+        prevBtn.layout(layout -> layout.height(18));
+        sortRow.addChild(prevBtn);
+        UIElement pageLabel = new UIElement();
+        pageLabel.layout(layout -> { layout.width(56); layout.height(18); });
+        pageLabel.setAllowHitTest(false);
+        sortRow.addChild(pageLabel);
+        catalogPageLabelRef[0] = pageLabel;
+        updateCatalogPageLabel(pageLabel, catalogPage[0], DIALOG_TEXT, CARD_ACCENT);
+        Button nextBtn = memberActionButton("screen.simukraft.citizen_info.skin.catalog.next", 56, () -> {
+            if (catalogHasNext[0]) {
+                catalogPage[0]++;
+                showDownloaderView(holder, dialog, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                        catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort, catalogType,
+                        catalogHasNext, catalogPageLabelRef, backToPicker);
+            }
+        });
+        nextBtn.layout(layout -> layout.height(18));
+        sortRow.addChild(nextBtn);
+        content.addChild(sortRow);
+
+        // 类型过滤 + 状态行
+        String typeKey = "alex".equals(catalogType[0])
+                ? "screen.simukraft.citizen_info.skin.catalog.type_alex"
+                : "steve".equals(catalogType[0])
+                        ? "screen.simukraft.citizen_info.skin.catalog.type_steve"
+                        : "screen.simukraft.citizen_info.skin.catalog.type_all";
+        UIElement typeRow = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(22);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(6);
+            layout.alignItems(AlignItems.CENTER);
+        });
+        Button typeBtn = memberActionButton(typeKey, 120, () -> {
+            catalogType[0] = "alex".equals(catalogType[0]) ? "" : "steve".equals(catalogType[0]) ? "alex" : "steve";
+            catalogPage[0] = 1;
+            showDownloaderView(holder, dialog, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                    catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort, catalogType,
+                    catalogHasNext, catalogPageLabelRef, backToPicker);
+        });
+        typeBtn.layout(layout -> layout.height(18));
+        typeRow.addChild(typeBtn);
+        Button apiBtn = memberActionButton("screen.simukraft.citizen_info.skin.catalog.api", 76, () ->
+                showCatalogApiSettings(holder, dialog, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                        catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort, catalogType,
+                        catalogHasNext, catalogPageLabelRef, backToPicker));
+        apiBtn.layout(layout -> layout.height(18));
+        typeRow.addChild(apiBtn);
+        UIElement statusLine = new UIElement();
+        statusLine.layout(layout -> { layout.flex(1); layout.height(14); });
+        statusLine.setAllowHitTest(false);
+        typeRow.addChild(statusLine);
+        catalogStatusLineRef[0] = statusLine;
+        content.addChild(typeRow);
+
+        // 加载目录
+        loadCatalogAndBuild(holder, content, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort, catalogType,
+                catalogHasNext, catalogPageLabelRef, backToPicker);
+
+        holder.addChild(content);
+    }
+
+    private static void showCatalogApiSettings(UIElement holder, UIElement dialog, int DIALOG_W, int DIALOG_H,
+                                               int DIALOG_TEXT, int CARD_ACCENT,
+                                               Set<String> catalogDownloaded, UIElement[] catalogStatusLineRef,
+                                               int[] catalogPage, String[] catalogKeyword, String[] catalogSort,
+                                               String[] catalogType, boolean[] catalogHasNext, UIElement[] catalogPageLabelRef,
+                                               Runnable backToDownloader) {
+        holder.clearAllChildren();
+        UIElement content = new UIElement().layout(layout -> {
+            layout.flex(1);
+            layout.widthPercent(100);
+            layout.flexDirection(FlexDirection.COLUMN);
+            layout.gapAll(4);
+        });
+
+        // 顶栏：标题 + 返回下载中心
+        UIElement headerRow = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(22);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(6);
+            layout.alignItems(AlignItems.CENTER);
+        });
+        Label title = new Label();
+        title.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_title"));
+        title.textStyle(s -> s.textColor(0xFFFFFFFF).textShadow(false).fontSize(10.0F));
+        title.layout(layout -> { layout.flex(1); layout.height(12); });
+        headerRow.addChild(title);
+        Button backBtn = memberActionButton("screen.simukraft.citizen_info.back", 64, backToDownloader);
+        backBtn.layout(layout -> layout.height(18));
+        headerRow.addChild(backBtn);
+        content.addChild(headerRow);
+
+        // 新增 API 行：名称 + 地址 + 添加按钮
+        UIElement addRow = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(22);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(4);
+            layout.alignItems(AlignItems.CENTER);
+        });
+        TextField nameField = new TextField();
+        nameField.setAnyString();
+        nameField.getTextFieldStyle().placeholder(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_name_placeholder"));
+        nameField.layout(layout -> { layout.width(70); layout.height(18); });
+        addRow.addChild(nameField);
+        TextField urlField = new TextField();
+        urlField.setAnyString();
+        urlField.setText("https://");
+        urlField.getTextFieldStyle().placeholder(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_placeholder"));
+        urlField.layout(layout -> { layout.flex(1); layout.height(18); });
+        addRow.addChild(urlField);
+        UIElement statusLine = new UIElement();
+        statusLine.layout(layout -> { layout.widthPercent(100); layout.height(14); });
+        statusLine.setAllowHitTest(false);
+        Button addBtn = memberActionButton("screen.simukraft.citizen_info.skin.catalog.api_add", 56, () ->
+                addCatalogApiEntry(nameField, urlField, statusLine, DIALOG_TEXT, holder, dialog, DIALOG_W, DIALOG_H,
+                        CARD_ACCENT, catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort,
+                        catalogType, catalogHasNext, catalogPageLabelRef, backToDownloader));
+        addBtn.layout(layout -> layout.height(18));
+        addRow.addChild(addBtn);
+        content.addChild(addRow);
+
+        // 已保存 API 列表
+        Label listLabel = new Label();
+        listLabel.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_list"));
+        listLabel.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(9.0F));
+        listLabel.layout(layout -> { layout.widthPercent(100); layout.height(12); });
+        content.addChild(listLabel);
+
+        UIElement listPanel = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.flexDirection(FlexDirection.COLUMN);
+            layout.gapAll(4);
+            layout.paddingAll(2);
+        });
+        List<ClientConfig.CatalogApi> apis = ClientConfig.catalogApis();
+        String activeUrl = ClientConfig.skinCatalogUrl();
+        if (apis.isEmpty()) {
+            Label empty = new Label();
+            empty.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_empty"));
+            empty.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(9.0F));
+            empty.layout(layout -> { layout.widthPercent(100); layout.height(12); });
+            listPanel.addChild(empty);
+        } else {
+            for (ClientConfig.CatalogApi api : apis) {
+                listPanel.addChild(catalogApiRow(api, api.url().equals(activeUrl), statusLine, DIALOG_TEXT, holder, dialog,
+                        DIALOG_W, DIALOG_H, CARD_ACCENT, catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword,
+                        catalogSort, catalogType, catalogHasNext, catalogPageLabelRef, backToDownloader));
+            }
+        }
+        ScrollerView scroller = new ScrollerView();
+        scroller.scrollerStyle(style -> style.mode(ScrollerMode.VERTICAL));
+        scroller.layout(layout -> { layout.flex(1); layout.widthPercent(100); });
+        scroller.addScrollViewChild(listPanel);
+        content.addChild(scroller);
+
+        content.addChild(statusLine);
+        catalogStatusLineRef[0] = statusLine;
+
+        // 底部：恢复默认 + 当前 API 提示
+        UIElement footerRow = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(20);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(6);
+            layout.alignItems(AlignItems.CENTER);
+        });
+        Button resetBtn = memberActionButton("screen.simukraft.citizen_info.skin.catalog.api_reset", 80, () -> {
+            ClientConfig.setSkinCatalogUrl(ClientConfig.DEFAULT_SKIN_CATALOG_URL);
+            resetCatalogQuery(catalogPage, catalogKeyword, catalogSort, catalogType, catalogHasNext);
+            backToDownloader.run();
+        });
+        resetBtn.layout(layout -> layout.height(18));
+        footerRow.addChild(resetBtn);
+        Label currentLabel = new Label();
+        currentLabel.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_current",
+                activeDisplayName(apis, activeUrl)));
+        currentLabel.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(9.0F));
+        currentLabel.layout(layout -> { layout.flex(1); layout.height(12); });
+        footerRow.addChild(currentLabel);
+        content.addChild(footerRow);
+
+        holder.addChild(content);
+    }
+
+    private static UIElement catalogApiRow(ClientConfig.CatalogApi api, boolean active, UIElement statusLine, int DIALOG_TEXT,
+                                           UIElement holder, UIElement dialog, int DIALOG_W, int DIALOG_H, int CARD_ACCENT,
+                                           Set<String> catalogDownloaded, UIElement[] catalogStatusLineRef,
+                                           int[] catalogPage, String[] catalogKeyword, String[] catalogSort,
+                                           String[] catalogType, boolean[] catalogHasNext, UIElement[] catalogPageLabelRef,
+                                           Runnable backToDownloader) {
+        UIElement row = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(22);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(4);
+            layout.alignItems(AlignItems.CENTER);
+            layout.paddingAll(2);
+        });
+        Label nameLabel = new Label();
+        nameLabel.setText(Component.literal(api.name().isBlank() ? api.url() : api.name()));
+        nameLabel.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(9.0F));
+        nameLabel.layout(layout -> { layout.flex(1); layout.height(12); });
+        row.addChild(nameLabel);
+        if (active) {
+            Label using = new Label();
+            using.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_using"));
+            using.textStyle(s -> s.textColor(0xFF2E7D32).textShadow(false).fontSize(9.0F));
+            using.layout(layout -> { layout.width(44); layout.height(12); });
+            row.addChild(using);
+        } else {
+            Button useButton = memberActionButton("screen.simukraft.citizen_info.skin.catalog.api_use", 44, () -> {
+                ClientConfig.setSkinCatalogUrl(api.url());
+                resetCatalogQuery(catalogPage, catalogKeyword, catalogSort, catalogType, catalogHasNext);
+                backToDownloader.run();
+            });
+            useButton.layout(layout -> layout.height(16));
+            row.addChild(useButton);
+        }
+        Button removeButton = memberActionButton("screen.simukraft.citizen_info.skin.catalog.api_delete", 40, () -> {
+            ClientConfig.removeCatalogApi(api.url());
+            setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_removed"), 0xFF2E7D32, DIALOG_TEXT);
+            showCatalogApiSettings(holder, dialog, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                    catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort, catalogType,
+                    catalogHasNext, catalogPageLabelRef, backToDownloader);
+        });
+        removeButton.layout(layout -> layout.height(16));
+        row.addChild(removeButton);
+        return row;
+    }
+
+    private static void addCatalogApiEntry(TextField nameField, TextField urlField, UIElement statusLine, int DIALOG_TEXT,
+                                           UIElement holder, UIElement dialog, int DIALOG_W, int DIALOG_H, int CARD_ACCENT,
+                                           Set<String> catalogDownloaded, UIElement[] catalogStatusLineRef,
+                                           int[] catalogPage, String[] catalogKeyword, String[] catalogSort,
+                                           String[] catalogType, boolean[] catalogHasNext, UIElement[] catalogPageLabelRef,
+                                           Runnable backToDownloader) {
+        String url = urlField.getValue() == null ? "" : urlField.getValue().trim();
+        if (url.isBlank() || !CitizenSkinDownloadService.isValidCatalogUrl(url)) {
+            setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_invalid"), 0xFFB00020, DIALOG_TEXT);
+            return;
+        }
+        String name = nameField.getValue() == null ? "" : nameField.getValue().trim();
+        ClientConfig.addCatalogApi(name, url);
+        setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.api_added"), 0xFF2E7D32, DIALOG_TEXT);
+        showCatalogApiSettings(holder, dialog, DIALOG_W, DIALOG_H, DIALOG_TEXT, CARD_ACCENT,
+                catalogDownloaded, catalogStatusLineRef, catalogPage, catalogKeyword, catalogSort, catalogType,
+                catalogHasNext, catalogPageLabelRef, backToDownloader);
+    }
+
+    private static String activeDisplayName(List<ClientConfig.CatalogApi> apis, String activeUrl) {
+        for (ClientConfig.CatalogApi api : apis) {
+            if (api.url().equals(activeUrl)) {
+                return api.name().isBlank() ? api.url() : api.name();
+            }
+        }
+        return activeUrl.isBlank() ? Component.translatable("screen.simukraft.citizen_info.none").getString() : activeUrl;
+    }
+
+    private static void resetCatalogQuery(int[] catalogPage, String[] catalogKeyword, String[] catalogSort,
+                                          String[] catalogType, boolean[] catalogHasNext) {
+        catalogPage[0] = 1;
+        catalogKeyword[0] = "";
+        catalogSort[0] = "";
+        catalogType[0] = "";
+        catalogHasNext[0] = false;
+    }
+
+    private static void updateCatalogPageLabel(UIElement holder, int page, int DIALOG_TEXT, int CARD_ACCENT) {
+        holder.clearAllChildren();
+        Label label = new Label();
+        label.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.page", page));
+        label.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(9.0F));
+        label.layout(layout -> { layout.widthPercent(100); layout.height(14); });
+        holder.addChild(label);
+    }
+
+    private static void setDownloadStatus(UIElement statusLine, Component component, int color, int DIALOG_TEXT) {
+        statusLine.clearAllChildren();
+        Label label = new Label();
+        label.setText(component);
+        label.textStyle(s -> s.textColor(color).textShadow(false).fontSize(9.0F));
+        label.layout(layout -> { layout.widthPercent(100); layout.height(14); });
+        statusLine.addChild(label);
+    }
+
+    private static void loadCatalogAndBuild(UIElement holder, UIElement content, int DIALOG_W, int DIALOG_H,
+                                            int DIALOG_TEXT, int CARD_ACCENT,
+                                            Set<String> catalogDownloaded, UIElement[] catalogStatusLineRef,
+                                            int[] catalogPage, String[] catalogKeyword, String[] catalogSort,
+                                            String[] catalogType, boolean[] catalogHasNext, UIElement[] catalogPageLabelRef,
+                                            Runnable backToPicker) {
+        String catalogUrl = ClientConfig.skinCatalogUrl();
+        UIElement statusLine = catalogStatusLineRef[0];
+        if (catalogUrl.isBlank()) {
+            setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.no_config"), 0xFFB00020, DIALOG_TEXT);
+            Label hint = new Label();
+            hint.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.no_config_hint"));
+            hint.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(9.0F));
+            hint.layout(layout -> { layout.widthPercent(100); layout.height(10); });
+            content.addChild(hint);
+            return;
+        }
+        setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.loading"), DIALOG_TEXT, DIALOG_TEXT);
+        CitizenSkinDownloadService.fetchCatalog(catalogUrl,
+                new CitizenSkinDownloadService.CatalogQuery(catalogPage[0], catalogKeyword[0], catalogSort[0], catalogType[0]),
+                result -> {
+                    if (!result.success()) {
+                        String errorKey = "catalog_empty".equals(result.errorKey())
+                                ? "screen.simukraft.citizen_info.skin.catalog.empty"
+                                : "screen.simukraft.citizen_info.skin.download.error." + result.errorKey();
+                        setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.download_fail",
+                                Component.translatable(errorKey)), 0xFFB00020, DIALOG_TEXT);
+                        return;
+                    }
+                    catalogHasNext[0] = result.hasNext();
+                    updateCatalogPageLabel(catalogPageLabelRef[0], catalogPage[0], DIALOG_TEXT, CARD_ACCENT);
+                    buildCatalogList(content, result.entries(), statusLine, DIALOG_TEXT, CARD_ACCENT, catalogDownloaded, catalogStatusLineRef);
+                });
+    }
+
+    private static void buildCatalogList(UIElement content, List<CitizenSkinDownloadService.CatalogEntry> entries,
+                                         UIElement statusLine, int DIALOG_TEXT, int CARD_ACCENT,
+                                         Set<String> catalogDownloaded, UIElement[] catalogStatusLineRef) {
+        setDownloadStatus(statusLine, Component.translatable("screen.simukraft.citizen_info.skin.catalog.count", entries.size()), 0xFF2E7D32, DIALOG_TEXT);
+        UIElement listPanel = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.flexDirection(FlexDirection.COLUMN);
+            layout.gapAll(4);
+            layout.paddingAll(4);
+        });
+        for (CitizenSkinDownloadService.CatalogEntry entry : entries) {
+            UIElement row = new UIElement().layout(layout -> {
+                layout.widthPercent(100);
+                layout.height(26);
+                layout.flexDirection(FlexDirection.ROW);
+                layout.gapAll(6);
+                layout.alignItems(AlignItems.CENTER);
+                layout.paddingAll(3);
+            });
+            populateCatalogRow(row, entry, false, DIALOG_TEXT, CARD_ACCENT, catalogDownloaded, catalogStatusLineRef);
+            listPanel.addChild(row);
+            CitizenSkinDownloadService.fetchThumbnailAsync(entry.url(), entry.name(), ok ->
+                    populateCatalogRow(row, entry, ok, DIALOG_TEXT, CARD_ACCENT, catalogDownloaded, catalogStatusLineRef));
+        }
+        ScrollerView scroller = new ScrollerView();
+        scroller.scrollerStyle(style -> style.mode(ScrollerMode.VERTICAL));
+        scroller.layout(layout -> { layout.flex(1); layout.widthPercent(100); });
+        scroller.addScrollViewChild(listPanel);
+        content.addChild(scroller);
+    }
+
+    private static void populateCatalogRow(UIElement row, CitizenSkinDownloadService.CatalogEntry entry, boolean thumbReady,
+                                           int DIALOG_TEXT, int CARD_ACCENT, Set<String> catalogDownloaded,
+                                           UIElement[] catalogStatusLineRef) {
+        row.clearAllChildren();
+        boolean downloaded = catalogDownloaded.contains(entry.name());
+        UIElement avatar = thumbReady
+                ? CitizenAvatarFactory.createHead(CitizenSkinLibrary.catalogTextureLocation(entry.name()), CARD_ACCENT)
+                : CitizenAvatarFactory.createHead((String) null, CARD_ACCENT);
+        avatar.layout(layout -> {
+            layout.width(20);
+            layout.height(20);
+            layout.flexShrink(0);
+        });
+        avatar.setAllowHitTest(false);
+        row.addChild(avatar);
+        Label nameLabel = new Label();
+        nameLabel.setText(Component.literal(entry.displayName()));
+        nameLabel.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(10.0F));
+        nameLabel.layout(layout -> { layout.flex(1); layout.height(12); });
+        row.addChild(nameLabel);
+        if (downloaded) {
+            Label dl = new Label();
+            dl.setText(Component.translatable("screen.simukraft.citizen_info.skin.catalog.downloaded"));
+            dl.textStyle(s -> s.textColor(0xFF2E7D32).textShadow(false).fontSize(9.0F));
+            dl.layout(layout -> { layout.width(48); layout.height(12); });
+            row.addChild(dl);
+        } else {
+            Button downloadButton = memberActionButton("screen.simukraft.citizen_info.skin.download_go", 48, () ->
+                    downloadCatalogSkin(entry, row, DIALOG_TEXT, CARD_ACCENT, catalogDownloaded, catalogStatusLineRef));
+            downloadButton.layout(layout -> layout.height(16));
+            row.addChild(downloadButton);
+        }
+    }
+
+    private static void downloadCatalogSkin(CitizenSkinDownloadService.CatalogEntry entry, UIElement row,
+                                            int DIALOG_TEXT, int CARD_ACCENT, Set<String> catalogDownloaded,
+                                            UIElement[] catalogStatusLineRef) {
+        CitizenSkinDownloadService.downloadAsync(entry.url(), entry.name(), result -> {
+            boolean thumbReady = CitizenSkinLibrary.catalogTextureLocation(entry.name()) != null;
+            if (result.success()) {
+                catalogDownloaded.add(entry.name());
+                CitizenSkinLibrary.reload();
+                populateCatalogRow(row, entry, thumbReady, DIALOG_TEXT, CARD_ACCENT, catalogDownloaded, catalogStatusLineRef);
+                if (catalogStatusLineRef[0] != null) {
+                    setDownloadStatus(catalogStatusLineRef[0],
+                            Component.translatable("screen.simukraft.citizen_info.skin.download_ok", result.fileName()),
+                            0xFF2E7D32, DIALOG_TEXT);
+                }
+            } else {
+                populateCatalogRow(row, entry, thumbReady, DIALOG_TEXT, CARD_ACCENT, catalogDownloaded, catalogStatusLineRef);
+                if (catalogStatusLineRef[0] != null) {
+                    setDownloadStatus(catalogStatusLineRef[0],
+                            Component.translatable("screen.simukraft.citizen_info.skin.download_fail",
+                                    Component.translatable("screen.simukraft.citizen_info.skin.download.error." + result.errorKey())),
+                            0xFFB00020, DIALOG_TEXT);
+                }
+            }
+        });
+    }
+
 
     /** skinDialogRow：皮肤列表单行，提供缩略图、名称、使用/删除按钮。 */
     private static UIElement skinDialogRow(String name, UUID[] citizenIdRef, String[] currentPathRef,
