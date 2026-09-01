@@ -3,7 +3,10 @@ package common.cn.kafei.simukraft.network.citizen.info;
 import com.lowdragmc.lowdraglib2.gui.holder.ModularUIContainerMenu;
 import common.cn.kafei.simukraft.SimuKraft;
 import common.cn.kafei.simukraft.citizen.CitizenInfoMenuHolder;
+import common.cn.kafei.simukraft.citizen.CitizenManager;
 import common.cn.kafei.simukraft.citizen.CitizenService;
+import common.cn.kafei.simukraft.city.CityManager;
+import common.cn.kafei.simukraft.city.CityPermissionLevel;
 import common.cn.kafei.simukraft.entity.CitizenEntity;
 import common.cn.kafei.simukraft.network.rts.RtsRemoteCitizenAccess;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -40,22 +43,55 @@ public record CitizenSetSkinPacket(UUID citizenId, String skinPath) implements C
         return new CitizenSetSkinPacket(buffer.readUUID(), buffer.readUtf(256));
     }
 
-    /** handle：仅允许当前打开对应 NPC 容器且仍在八格内的玩家修改皮肤。 */
+    /** handle：允许通过市民信息容器（近距离）或市民管理界面（城市 OFFICIAL 及以上权限）修改皮肤。 */
     public static void handle(CitizenSetSkinPacket packet, IPayloadContext context) {
         if (!(context.player() instanceof ServerPlayer player)
-                || !(player.level() instanceof ServerLevel level)
-                || !(player.containerMenu instanceof ModularUIContainerMenu menu)
-                || !(menu.uiHolder instanceof CitizenInfoMenuHolder holder)
-                || !holder.citizenId().equals(packet.citizenId())) {
+                || !(player.level() instanceof ServerLevel level)) {
             return;
         }
-        CitizenEntity citizen = holder.owner();
-        if (citizen == null || !citizen.isAlive() || citizen.level() != level
-                || (player.distanceToSqr(citizen) > 64.0D
-                && !RtsRemoteCitizenAccess.hasInfoAccess(player, packet.citizenId()))) {
+        // 分支一：玩家在市民实体信息容器里（原版近距离逻辑）。
+        if (player.containerMenu instanceof ModularUIContainerMenu menu
+                && menu.uiHolder instanceof CitizenInfoMenuHolder holder
+                && holder.citizenId().equals(packet.citizenId())) {
+            CitizenEntity citizen = holder.owner();
+            if (citizen == null || !citizen.isAlive() || citizen.level() != level
+                    || (player.distanceToSqr(citizen) > 64.0D
+                    && !RtsRemoteCitizenAccess.hasInfoAccess(player, packet.citizenId()))) {
+                return;
+            }
+            CitizenService.setSkin(level, citizen, sanitize(packet.skinPath()));
             return;
         }
-        CitizenService.setSkin(level, citizen, sanitize(packet.skinPath()));
+        // 分支二：从市民管理界面修改皮肤，需玩家在该市民所在城市至少拥有 OFFICIAL 权限。
+        // 同时 OP 等级 2+ 也可以直接操作（与 OP 城市管理逻辑一致）。
+        CitizenManager citizenManager = CitizenManager.get(level);
+        if (citizenManager.getCitizen(packet.citizenId()).isEmpty()) {
+            return;
+        }
+        boolean permitted = false;
+        if (player.hasPermissions(2)) {
+            permitted = true;
+        } else {
+            UUID cityId = citizenManager.getCitizen(packet.citizenId()).get().cityId();
+            if (cityId != null) {
+                permitted = CityManager.get(level).getCity(cityId)
+                        .map(city -> city.hasPermission(player.getUUID(), CityPermissionLevel.OFFICIAL))
+                        .orElse(false);
+            }
+        }
+        if (!permitted) {
+            return;
+        }
+        CitizenEntity target = (CitizenEntity) level.getEntity(packet.citizenId());
+        if (target == null || !target.isAlive()) {
+            // 未加载的实体仍可通过 CitizenData 直接持久化皮肤路径，下次加载同步即可。
+            citizenManager.getCitizen(packet.citizenId()).ifPresent(data -> {
+                data.setSkinPath(sanitize(packet.skinPath()));
+                CitizenService.save(level, packet.citizenId());
+            });
+            return;
+        }
+        CitizenService.setSkin(level, target, sanitize(packet.skinPath()));
     }
 
     private static String sanitize(String skinPath) {

@@ -291,6 +291,7 @@
     "screen.simukraft.city_core.citizen_manage.dismiss":  "解雇",
     "screen.simukraft.city_core.citizen_manage.exile":  "流放",
     "screen.simukraft.city_core.citizen_manage.rename":  "改名",
+    "screen.simukraft.city_core.citizen_manage.skin":  "皮肤",
     "screen.simukraft.city_core.citizen_manage.rename_title":  "重命名NPC",
     "screen.simukraft.city_core.citizen_manage.rename_confirm":  "确认",
     "screen.simukraft.city_core.citizen_manage.rename_cancel":  "取消",

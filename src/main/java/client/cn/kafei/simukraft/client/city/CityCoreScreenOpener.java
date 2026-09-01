@@ -8,6 +8,7 @@ import client.cn.kafei.simukraft.client.ui.SimuKraftWindowFrame;
 import client.cn.kafei.simukraft.client.city.map.SimuMapManager;
 import client.cn.kafei.simukraft.client.citizen.CitizenAvatarFactory;
 import client.cn.kafei.simukraft.client.citizen.CitizenFamilyGraphCanvas;
+import client.cn.kafei.simukraft.client.citizen.CitizenSkinLibrary;
 import client.cn.kafei.simukraft.client.city.map.SimuMapRegion;
 import common.cn.kafei.simukraft.city.CityPermissionLevel;
 import common.cn.kafei.simukraft.network.city.chunk.CityChunkBatchPurchasePacket;
@@ -23,6 +24,8 @@ import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenFamilyGraphRe
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageActionPacket;
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageRequestPacket;
 import common.cn.kafei.simukraft.network.citizen.manage.CityCitizenManageResponsePacket;
+import common.cn.kafei.simukraft.network.citizen.info.CitizenSetSkinPacket;
+import common.cn.kafei.simukraft.network.citizen.info.CitizenSkinRequestPacket;
 import common.cn.kafei.simukraft.network.city.member.CityCoreMemberActionPacket;
 import common.cn.kafei.simukraft.network.city.member.CityCoreMembersRequestPacket;
 import common.cn.kafei.simukraft.network.city.member.CityCoreMembersResponsePacket;
@@ -429,6 +432,10 @@ public final class CityCoreScreenOpener {
         final UUID[] renameCitizenId = { null };
         final TextField[] renameField = { null };
         final UIElement[] renameDialogHolder = { null };
+        // 皮肤弹窗引用：点击某市民“皮肤”按钮后打开，仅对一个目标市民生效。
+        final UUID[] skinTargetCitizenId = { null };
+        final String[] skinTargetCurrentPath = { "" };
+        final UIElement[] skinDialogHolder = { null };
 
         Runnable confirmRename = () -> {
             if (renameCitizenId[0] != null && renameField[0] != null) {
@@ -447,7 +454,8 @@ public final class CityCoreScreenOpener {
             for (CityCitizenManageResponsePacket.CitizenEntry citizen : packet.citizens()) {
                 String n = citizen.name() == null ? "" : citizen.name();
                 if (!q.isEmpty() && !n.toLowerCase(Locale.ROOT).contains(q)) continue;
-                listPanel.addChild(citizenRow(packet, citizen, renameCitizenId, renameField, renameDialogHolder));
+                listPanel.addChild(citizenRow(packet, citizen, renameCitizenId, renameField, renameDialogHolder,
+                        skinTargetCitizenId, skinTargetCurrentPath, skinDialogHolder));
                 any = true;
             }
             if (!any) listPanel.addChild(line(Component.translatable("screen.simukraft.city_core.citizen_manage.empty")));
@@ -469,6 +477,13 @@ public final class CityCoreScreenOpener {
         renameDialog.setVisible(false);
         renameDialogHolder[0] = renameDialog;
         outer.addChild(renameDialog);
+
+        UIElement skinDialog = skinDialog(skinTargetCitizenId, skinTargetCurrentPath,
+                () -> { skinDialogHolder[0].setVisible(false); rebuild.run(); },
+                () -> { PacketDistributor.sendToServer(new CitizenSkinRequestPacket()); });
+        skinDialog.setVisible(false);
+        skinDialogHolder[0] = skinDialog;
+        outer.addChild(skinDialog);
 
         return outer;
     }
@@ -563,7 +578,8 @@ public final class CityCoreScreenOpener {
     }
 
     private static UIElement citizenRow(CityCitizenManageResponsePacket packet, CityCitizenManageResponsePacket.CitizenEntry citizen,
-                                        UUID[] renameCitizenId, TextField[] renameField, UIElement[] renameDialogHolder) {
+                                        UUID[] renameCitizenId, TextField[] renameField, UIElement[] renameDialogHolder,
+                                        UUID[] skinTargetCitizenId, String[] skinTargetCurrentPath, UIElement[] skinDialogHolder) {
         UIElement row = new UIElement().layout(layout -> {
             layout.widthPercent(100);
             layout.height(44);
@@ -598,6 +614,14 @@ public final class CityCoreScreenOpener {
                 layout.gapAll(4);
                 layout.flexShrink(0);
             });
+            // skinAction：写入目标市民并显示皮肤弹窗。
+            Runnable skinAction = () -> {
+                skinTargetCitizenId[0] = citizen.citizenId();
+                skinTargetCurrentPath[0] = citizen.skinPath() != null ? citizen.skinPath() : "";
+                CitizenSkinLibrary.ensureScanned();
+                skinDialogHolder[0].setVisible(true);
+            };
+            buttonGroup.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.skin", 44, skinAction));
             buttonGroup.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.rename", 44,
                     () -> openRenameDialog(renameCitizenId, renameField, renameDialogHolder, citizen.citizenId(), citizen.name())));
             buttonGroup.addChild(memberActionButton("screen.simukraft.city_core.citizen_manage.dismiss", 52,
@@ -953,6 +977,231 @@ public final class CityCoreScreenOpener {
         activeWindow = null;
         activeScreen = null;
         minecraft.setScreen(null);
+    }
+
+    /**
+     * skinDialog: 市民管理界面的皮肤选择弹窗，与身份证界面的皮肤子视图功能一致：
+     * 刷新列表、恢复默认、选择/删除本地皮肤并即时应用；关闭时会刷新行头像。
+     */
+    private static UIElement skinDialog(UUID[] citizenIdRef, String[] currentPathRef, Runnable onClose, Runnable onRequestServer) {
+        final int DIALOG_W = 420;
+        final int DIALOG_H = 360;
+        final int DIALOG_ACCENT = 0xFF6D4C41;
+        final int DIALOG_PAPER = 0xFFF5F0E1;
+        final int DIALOG_TEXT = 0xFF3E2723;
+
+        UIElement overlay = new UIElement().layout(layout -> {
+            layout.positionType(TaffyPosition.ABSOLUTE);
+            layout.left(0);
+            layout.top(0);
+            layout.right(0);
+            layout.bottom(0);
+            layout.flexDirection(FlexDirection.COLUMN);
+            layout.alignItems(AlignItems.CENTER);
+            layout.justifyContent(AlignContent.CENTER);
+        }).style(style -> style.backgroundTexture(new ColorRectTexture(0x80000000)));
+
+        UIElement dialog = new UIElement().layout(layout -> {
+            layout.width(DIALOG_W);
+            layout.height(DIALOG_H);
+            layout.flexDirection(FlexDirection.COLUMN);
+            layout.paddingAll(8);
+            layout.gapAll(6);
+            layout.alignItems(AlignContent.STRETCH);
+        }).style(style -> style.backgroundTexture(new ColorRectTexture(DIALOG_PAPER)));
+
+        // 标题栏
+        UIElement header = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(22);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.alignItems(AlignItems.CENTER);
+            layout.paddingAll(4);
+        }).style(style -> style.backgroundTexture(new ColorRectTexture(DIALOG_ACCENT)));
+        Label title = new Label();
+        title.setText(Component.translatable("screen.simukraft.citizen_info.skin.title"));
+        title.textStyle(s -> s.textColor(0xFFFFFFFF).textShadow(false).fontSize(11.0F));
+        title.layout(layout -> { layout.flex(1); layout.height(14); });
+        header.addChild(title);
+        dialog.addChild(header);
+
+        // 当前信息 + 顶栏按钮：刷新 / 默认 / 关闭
+        UIElement topRow = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(24);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(6);
+            layout.alignItems(AlignItems.CENTER);
+        });
+        Label currentLabel = new Label();
+        Runnable updateCurrentLabel = () -> {
+            String name = CitizenSkinLibrary.nameFromStoredPath(currentPathRef[0]);
+            String text = name != null ? name : Component.translatable("screen.simukraft.citizen_info.none").getString();
+            currentLabel.setText(Component.translatable("screen.simukraft.citizen_info.skin.label")
+                    .copy().append(Component.literal(": " + text)));
+        };
+        updateCurrentLabel.run();
+        currentLabel.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(10.0F));
+        currentLabel.layout(layout -> { layout.flex(1); layout.height(12); });
+        topRow.addChild(currentLabel);
+
+        Button refreshBtn = memberActionButton("screen.simukraft.citizen_info.skin.refresh", 56, () -> {
+            CitizenSkinLibrary.reload();
+            if (onRequestServer != null) {
+                onRequestServer.run();
+            }
+        });
+        refreshBtn.layout(layout -> layout.height(20));
+        topRow.addChild(refreshBtn);
+
+        Button resetBtn = memberActionButton("screen.simukraft.citizen_info.skin.reset", 56, () -> {
+            if (citizenIdRef[0] == null) return;
+            currentPathRef[0] = "";
+            PacketDistributor.sendToServer(new CitizenSetSkinPacket(citizenIdRef[0], ""));
+            updateCurrentLabel.run();
+        });
+        resetBtn.layout(layout -> layout.height(20));
+        topRow.addChild(resetBtn);
+
+        Button closeBtn = memberActionButton("screen.simukraft.citizen_info.back", 48, onClose);
+        closeBtn.layout(layout -> layout.height(20));
+        topRow.addChild(closeBtn);
+        dialog.addChild(topRow);
+
+        // 皮肤列表滚动容器
+        UIElement listPanel = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.flexDirection(FlexDirection.COLUMN);
+            layout.gapAll(4);
+            layout.paddingAll(4);
+        });
+
+        Runnable rebuildList = () -> {
+            listPanel.clearAllChildren();
+            List<String> names = CitizenSkinLibrary.listNames();
+            if (names.isEmpty()) {
+                Label empty = new Label();
+                empty.setText(Component.translatable("screen.simukraft.citizen_info.skin.empty"));
+                empty.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(10.0F));
+                empty.layout(layout -> { layout.widthPercent(100); layout.height(14); });
+                listPanel.addChild(empty);
+            } else {
+                for (String name : names) {
+                    listPanel.addChild(skinDialogRow(name, citizenIdRef, currentPathRef, updateCurrentLabel, onClose));
+                }
+            }
+        };
+        rebuildList.run();
+
+        // 刷新按钮和删除操作都需要重建列表，这里简单把刷新回调包一层
+        refreshBtn.setOnClick(event -> {
+            CitizenSkinLibrary.reload();
+            if (onRequestServer != null) {
+                onRequestServer.run();
+            }
+            rebuildList.run();
+        });
+
+        ScrollerView scroller = new ScrollerView();
+        scroller.scrollerStyle(style -> style.mode(ScrollerMode.VERTICAL));
+        scroller.layout(layout -> {
+            layout.flex(1);
+            layout.widthPercent(100);
+        });
+        scroller.addScrollViewChild(listPanel);
+        dialog.addChild(scroller);
+
+        // 底部提示
+        Label hint = new Label();
+        hint.setText(Component.translatable("screen.simukraft.citizen_info.skin.folder_hint",
+                CitizenSkinLibrary.rootDirectory().toString()));
+        hint.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(9.0F));
+        hint.layout(layout -> { layout.widthPercent(100); layout.height(10); });
+        dialog.addChild(hint);
+
+        overlay.addChild(dialog);
+        overlay.addEventListener(UIEvents.MOUSE_DOWN, e -> e.stopPropagation());
+        return overlay;
+    }
+
+    /** skinDialogRow：皮肤列表单行，提供缩略图、名称、使用/删除按钮。 */
+    private static UIElement skinDialogRow(String name, UUID[] citizenIdRef, String[] currentPathRef,
+                                           Runnable updateCurrentLabel, Runnable onCloseAfterApply) {
+        String stored = CitizenSkinLibrary.storedPath(name);
+        boolean current = name.equals(CitizenSkinLibrary.nameFromStoredPath(currentPathRef[0]));
+        UIElement row = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(26);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(6);
+            layout.alignItems(AlignItems.CENTER);
+            layout.paddingAll(3);
+        });
+        row.style(style -> style.backgroundTexture(new ColorRectTexture(current ? 0xFFE8DFC8 : 0x00000000)));
+
+        UIElement avatar = CitizenAvatarFactory.createHead(stored, 0xFFC8A260);
+        avatar.layout(layout -> {
+            layout.width(20);
+            layout.height(20);
+            layout.flexShrink(0);
+        });
+        avatar.setAllowHitTest(false);
+        row.addChild(avatar);
+
+        Label nameLabel = new Label();
+        nameLabel.setText(Component.literal(name));
+        nameLabel.textStyle(s -> s.textColor(0xFF3E2723).textShadow(false).fontSize(10.0F));
+        nameLabel.layout(layout -> { layout.flex(1); layout.height(12); });
+        row.addChild(nameLabel);
+
+        if (current) {
+            Label cur = new Label();
+            cur.setText(Component.translatable("screen.simukraft.citizen_info.skin.current"));
+            cur.textStyle(s -> s.textColor(0xFF6D4C41).textShadow(false).fontSize(9.0F));
+            cur.layout(layout -> { layout.width(44); layout.height(12); });
+            row.addChild(cur);
+        } else {
+            Button useBtn = new Button();
+            useBtn.setText(Component.translatable("screen.simukraft.citizen_info.skin.use"));
+            useBtn.setOnClick(event -> {
+                if (citizenIdRef[0] == null) return;
+                currentPathRef[0] = stored;
+                PacketDistributor.sendToServer(new CitizenSetSkinPacket(citizenIdRef[0], stored));
+                updateCurrentLabel.run();
+                if (onCloseAfterApply != null) {
+                    onCloseAfterApply.run();
+                }
+            });
+            useBtn.addEventListener(UIEvents.MOUSE_DOWN, e -> e.stopPropagation());
+            useBtn.layout(layout -> { layout.width(48); layout.height(18); layout.flexShrink(0); });
+            row.addChild(useBtn);
+        }
+
+        if (CitizenSkinLibrary.hasLocalFile(name)) {
+            Button delBtn = new Button();
+            delBtn.setText(Component.translatable("screen.simukraft.citizen_info.skin.delete"));
+            delBtn.setOnClick(event -> {
+                if (!CitizenSkinLibrary.deleteLocalSkin(name)) {
+                    return;
+                }
+                if (CitizenSkinLibrary.storedPath(name).equals(currentPathRef[0])) {
+                    currentPathRef[0] = "";
+                    if (citizenIdRef[0] != null) {
+                        PacketDistributor.sendToServer(new CitizenSetSkinPacket(citizenIdRef[0], ""));
+                    }
+                    updateCurrentLabel.run();
+                }
+                // 这里只是单行删除，由上层 refreshBtn 负责整表重建；这里保守处理：关闭弹窗后用户会看到新头像。
+                if (onCloseAfterApply != null) {
+                    onCloseAfterApply.run();
+                }
+            });
+            delBtn.addEventListener(UIEvents.MOUSE_DOWN, e -> e.stopPropagation());
+            delBtn.layout(layout -> { layout.width(40); layout.height(18); layout.flexShrink(0); });
+            row.addChild(delBtn);
+        }
+
+        return row;
     }
 
     private record UpgradeRefreshExpectation(BlockPos pos, UUID cityId, long sourceWindowId) {

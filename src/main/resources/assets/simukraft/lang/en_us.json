@@ -290,6 +290,7 @@
     "screen.simukraft.city_core.citizen_manage.dismiss":  "Dismiss",
     "screen.simukraft.city_core.citizen_manage.exile":  "Exile",
     "screen.simukraft.city_core.citizen_manage.rename":  "Rename",
+    "screen.simukraft.city_core.citizen_manage.skin":  "Skin",
     "screen.simukraft.city_core.citizen_manage.rename_title":  "Rename NPC",
     "screen.simukraft.city_core.citizen_manage.rename_confirm":  "Confirm",
     "screen.simukraft.city_core.citizen_manage.rename_cancel":  "Cancel",
