@@ -58,6 +58,7 @@ import com.mojang.blaze3d.vertex.VertexFormat;
 import dev.vfyjxf.taffy.style.AlignContent;
 import dev.vfyjxf.taffy.style.AlignItems;
 import dev.vfyjxf.taffy.style.FlexDirection;
+import dev.vfyjxf.taffy.style.TaffyPosition;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.core.BlockPos;
@@ -1007,7 +1008,7 @@ public final class CityCoreScreenOpener {
             layout.flexDirection(FlexDirection.COLUMN);
             layout.paddingAll(8);
             layout.gapAll(6);
-            layout.alignItems(AlignContent.STRETCH);
+            layout.alignItems(AlignItems.STRETCH);
         }).style(style -> style.backgroundTexture(new ColorRectTexture(DIALOG_PAPER)));
 
         // 标题栏
