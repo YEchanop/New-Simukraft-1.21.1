@@ -1,5 +1,6 @@
 package client.cn.kafei.simukraft.client.citizen.ai;
 
+import common.cn.kafei.simukraft.SimuKraft;
 import common.cn.kafei.simukraft.config.ClientConfig;
 import com.lowdragmc.lowdraglib2.gui.texture.ColorRectTexture;
 import com.lowdragmc.lowdraglib2.gui.ui.UIElement;
@@ -13,6 +14,7 @@ import dev.vfyjxf.taffy.style.AlignContent;
 import dev.vfyjxf.taffy.style.AlignItems;
 import dev.vfyjxf.taffy.style.FlexDirection;
 import dev.vfyjxf.taffy.style.TaffyPosition;
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.neoforged.api.distmarker.Dist;
@@ -38,7 +40,7 @@ import java.util.UUID;
 public final class AiSettingsPanel {
 
     private static final int DIALOG_W = 560;
-    private static final int DIALOG_H = 420;
+    private static final int DIALOG_H = 446;
     private static final int DIALOG_ACCENT = 0xFF6D4C41;
     private static final int DIALOG_PAPER = 0xFFF5F0E1;
     private static final int DIALOG_TEXT = 0xFF3E2723;
@@ -75,7 +77,7 @@ public final class AiSettingsPanel {
     }
 
     /**
-     * createContent: 仅 AI 设置面板内容（560x420，不含遮罩层）。
+     * createContent: 仅 AI 设置面板内容（560x446，不含遮罩层）。
      * 左侧：域名列表；右上：端点编辑；右下：模型列表。
      */
     public static UIElement createContent(Runnable onSave, Runnable onClose) {
@@ -110,6 +112,25 @@ public final class AiSettingsPanel {
         header.addChild(closeBtn);
 
         dialog.addChild(header);
+
+        // ===== 提供商官网快捷跳转（获取 API Key / 管理台）=====
+        UIElement providerRow = new UIElement().layout(layout -> {
+            layout.widthPercent(100);
+            layout.height(20);
+            layout.flexDirection(FlexDirection.ROW);
+            layout.gapAll(4);
+            layout.alignItems(AlignItems.CENTER);
+        });
+        Label providerHint = new Label();
+        providerHint.setText(Component.literal("获取API Key:"));
+        providerHint.textStyle(s -> s.textColor(DIALOG_TEXT).textShadow(false).fontSize(9.0F));
+        providerHint.layout(l -> { l.width(70); l.height(12); l.flexShrink(0); });
+        providerRow.addChild(providerHint);
+        providerLinkButton(providerRow, "NVIDIA", 58, "https://build.nvidia.com");
+        providerLinkButton(providerRow, "商汤日日新", 76, "https://platform.sensenova.cn");
+        providerLinkButton(providerRow, "魔搭", 44, "https://modelscope.cn");
+        providerLinkButton(providerRow, "OpenRouter", 84, "https://openrouter.ai/");
+        dialog.addChild(providerRow);
 
         // ===== 主体：左(域名列表) + 右(编辑+模型) =====
         UIElement body = new UIElement().layout(layout -> {
@@ -629,6 +650,32 @@ public final class AiSettingsPanel {
             btn.layout(l -> { l.height(18); l.flexShrink(0); l.justifyContent(AlignContent.CENTER); l.flexDirection(FlexDirection.ROW); });
         }
         return btn;
+    }
+
+    /** providerLinkButton：提供商官网快捷按钮（点击用系统浏览器打开）。 */
+    private static void providerLinkButton(UIElement row, String text, int width, String url) {
+        Button btn = new Button();
+        btn.setText(Component.literal(text));
+        btn.setOnClick(e -> openWeb(url));
+        btn.style(s -> s.backgroundTexture(new ColorRectTexture(0xFF8D6E63)));
+        btn.textStyle(s -> s.textColor(0xFFFFFFFF).textShadow(false).fontSize(9.0F));
+        btn.layout(l -> {
+            l.width(width);
+            l.height(18);
+            l.flexShrink(0);
+            l.justifyContent(AlignContent.CENTER);
+            l.flexDirection(FlexDirection.ROW);
+        });
+        row.addChild(btn);
+    }
+
+    /** openWeb：用系统默认浏览器打开外部链接；失败仅记日志，不打断界面。 */
+    private static void openWeb(String url) {
+        try {
+            Util.getPlatform().openUri(url);
+        } catch (RuntimeException exception) {
+            SimuKraft.LOGGER.warn("Failed to open AI provider website: {}", url, exception);
+        }
     }
 
     /** formRow：表单两列行（label + field）。 */

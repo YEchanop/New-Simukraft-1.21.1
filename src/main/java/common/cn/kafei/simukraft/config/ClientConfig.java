@@ -136,7 +136,12 @@ public final class ClientConfig {
                         "Use the AI settings panel to add, edit and remove endpoints."
                 )
                 .translation("config.simukraft.client.citizenAi.endpoints")
-                .defineListAllowEmpty("endpoints", List.of(), ClientConfig::isAiEndpointEntry);
+                .defineListAllowEmpty("endpoints", List.of(
+                        "builtin-nvidia|NVIDIA NIM|https://integrate.api.nvidia.com||openai|1|",
+                        "builtin-sensenova|SenseNova (商汤日日新)|https://token.sensenova.cn||openai|1|",
+                        "builtin-modelscope|ModelScope (魔搭)|https://api-inference.modelscope.cn||openai|1|",
+                        "builtin-openrouter|OpenRouter|https://openrouter.ai/api||openai|1|"
+                ), ClientConfig::isAiEndpointEntry);
         CITIZEN_AI_DEFAULT_ENDPOINT_ID = builder
                 .comment("Id of the default AI endpoint selected when opening the chat dialog. Empty string means first enabled endpoint.")
                 .translation("config.simukraft.client.citizenAi.defaultEndpointId")
